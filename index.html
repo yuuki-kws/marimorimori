@@ -339,27 +339,43 @@ function buildStage() {
   // ── Rock obstacles (16 pcs) ────────────────────────────────
   spawnRocks(16);
 
-  // ── Rivers (2 sections) ─────────────────────────────────────
-  const riverBodyMat  = new THREE.MeshLambertMaterial({ color: 0x1a6fb5, transparent: true, opacity: 0.82 });
-  const riverGlintMat = new THREE.MeshBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.18 });
+  // ── Rivers (2 sections) – deep visual trick ─────────────────
+  const riverBedMat   = new THREE.MeshLambertMaterial({ color: 0x03080e });
+  const riverBodyMat  = new THREE.MeshLambertMaterial({ color: 0x0c3d72, transparent: true, opacity: 0.58 });
+  const riverGlintMat = new THREE.MeshBasicMaterial({ color: 0x3a6ecc, transparent: true, opacity: 0.20 });
   CFG.RIVERS.forEach(R => {
     const rw  = R.xMax - R.xMin;
     const rd  = R.zMax - R.zMin;
     const rcx = (R.xMin + R.xMax) / 2;
     const rcz = (R.zMin + R.zMax) / 2;
     const geo = new THREE.PlaneGeometry(rw, rd);
+    // Dark riverbed far below for depth illusion (visible through semi-transparent water)
+    const bed = new THREE.Mesh(new THREE.PlaneGeometry(rw, rd), riverBedMat);
+    bed.rotation.x = -Math.PI / 2;
+    bed.position.set(rcx, -1.8, rcz);
+    scene.add(bed);
+    // Inner bank walls (dark vertical panels at river edges give canyon feel)
+    [[-rw / 2, 0], [rw / 2, Math.PI]].forEach(([ox, ry]) => {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(rd, 2.0), riverBedMat);
+      wall.rotation.y = ry;
+      wall.position.set(rcx + ox, -0.9, rcz);
+      scene.add(wall);
+    });
     const body = new THREE.Mesh(geo, riverBodyMat);
     body.rotation.x = -Math.PI / 2;
     body.position.set(rcx, 0.06, rcz);
     scene.add(body);
     const glint = new THREE.Mesh(geo, riverGlintMat);
     glint.rotation.x = -Math.PI / 2;
-    glint.position.set(rcx, 0.09, rcz);
+    glint.position.set(rcx, 0.11, rcz);
     scene.add(glint);
   });
 
   // ── Decorative trees (visual depth markers) ─────────────────
   buildTrees();
+
+  // ── Wild flowers ─────────────────────────────────────────────
+  buildFlowers();
 
   // ── Goal – cave entrance ───────────────────────────────────
   buildCave();
@@ -532,27 +548,31 @@ function buildClouds() {
   }
 }
 
-// ─── Rock boundary walls ──────────────────────────────────────
+// ─── Rock boundary walls – seamless, no gaps ─────────────────
 function buildRockWalls(T_W, T_L) {
-  const rockMat  = new THREE.MeshLambertMaterial({ color: 0x2c2218 });
-  const rockMat2 = new THREE.MeshLambertMaterial({ color: 0x241a10 });
+  const mats = [
+    new THREE.MeshLambertMaterial({ color: 0x2c2218 }),
+    new THREE.MeshLambertMaterial({ color: 0x241a10 }),
+    new THREE.MeshLambertMaterial({ color: 0x32261c }),
+  ];
 
-  // Long side walls (along Z, left x=-35 and right x=+35)
+  // Long side walls along Z (at x = ±T_W/2).
+  // Each segment spans `step + OVERLAP` so adjacent blocks always overlap.
+  const SIDE_N = 18;
+  const SIDE_SPAN = T_L + 14;   // extend a bit past the Z ends to cover corners
+  const SIDE_STEP = SIDE_SPAN / SIDE_N;
+  const OVERLAP = 4;
+
   [-1, 1].forEach(side => {
     const baseX = side * (T_W / 2);
-    const segCount = 14;
-    const segLen   = T_L / segCount;
-
-    for (let seg = 0; seg < segCount; seg++) {
-      const h  = 5.5 + Math.random() * 4.5;
-      const w  = 4.5 + Math.random() * 2.5;
-      const dz = 2   + Math.random() * 6;
-      const cz = -T_L / 2 + segLen * (seg + 0.5) + (Math.random() - 0.5) * 6;
-      const cx = baseX + side * w / 2;
-
+    for (let seg = 0; seg < SIDE_N; seg++) {
+      const h  = 5 + (seg * 7919 % 5);   // deterministic variation 5–10
+      const w  = 5 + (seg * 5381 % 4);   // X depth 5–9
+      const cz = -SIDE_SPAN / 2 + SIDE_STEP * (seg + 0.5);
+      const cx = baseX + side * (w / 2);
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(w, h, segLen * 0.78 + dz),
-        seg % 3 === 0 ? rockMat2 : rockMat
+        new THREE.BoxGeometry(w, h, SIDE_STEP + OVERLAP),
+        mats[seg % mats.length]
       );
       mesh.position.set(cx, h / 2, cz);
       mesh.castShadow = mesh.receiveShadow = true;
@@ -560,27 +580,74 @@ function buildRockWalls(T_W, T_L) {
     }
   });
 
-  // Short end walls (along X, front z=-190 and back z=+190)
+  // Short end walls along X (at z = ±T_L/2).
+  // Span wider than T_W so they fully overlap the corners of the side walls.
+  const END_N = 7;
+  const END_SPAN = T_W + 24;   // 70+24=94, well past ±35 (the side wall outer face)
+  const END_STEP = END_SPAN / END_N;
+
   [-1, 1].forEach(side => {
     const baseZ = side * (T_L / 2);
-    const segCount = 5;
-    const segLen   = T_W / segCount;
-
-    for (let seg = 0; seg < segCount; seg++) {
-      const h  = 5.5 + Math.random() * 4.5;
-      const d  = 4.5 + Math.random() * 2.5;
-      const cx = -T_W / 2 + segLen * (seg + 0.5) + (Math.random() - 0.5) * 4;
-      const cz = baseZ + side * d / 2;
-
+    for (let seg = 0; seg < END_N; seg++) {
+      const h  = 5 + (seg * 6271 % 5);
+      const d  = 5 + (seg * 4919 % 4);   // Z depth 5–9
+      const cx = -END_SPAN / 2 + END_STEP * (seg + 0.5);
+      const cz = baseZ + side * (d / 2);
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(segLen * 0.82 + 4, h, d),
-        seg % 2 === 0 ? rockMat2 : rockMat
+        new THREE.BoxGeometry(END_STEP + OVERLAP, h, d),
+        mats[seg % mats.length]
       );
       mesh.position.set(cx, h / 2, cz);
       mesh.castShadow = mesh.receiveShadow = true;
       scene.add(mesh);
     }
   });
+}
+
+// ─── Wild flowers ─────────────────────────────────────────────
+function buildFlowers() {
+  const petalColors = [0xffc0d0, 0xfffacd, 0xff8caa, 0xe8b4f8, 0xffffff, 0xffe4b5, 0xffb3de];
+  const stemMat   = new THREE.MeshLambertMaterial({ color: 0x2d6820 });
+  const centerMat = new THREE.MeshLambertMaterial({ color: 0xffee22 });
+
+  let placed = 0, tries = 0;
+  while (placed < 160 && ++tries < 4000) {
+    const x = (Math.random() - 0.5) * 62;
+    const z = -174 + Math.random() * 348;
+
+    if (dist2D(x, z, CFG.START.x, CFG.START.z) < 9)  continue;
+    if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 11) continue;
+    if (CFG.RIVERS.some(R =>
+      x > R.xMin - 1 && x < R.xMax + 1 &&
+      z > R.zMin - 1 && z < R.zMax + 1)) continue;
+
+    const gy  = terrainH(x, z);
+    const col = petalColors[Math.floor(Math.random() * petalColors.length)];
+    const petalMat = new THREE.MeshLambertMaterial({ color: col });
+
+    const group = new THREE.Group();
+
+    // Stem
+    group.add(Object.assign(
+      new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.30, 4), stemMat),
+      { position: new THREE.Vector3(0, 0.15, 0) }
+    ));
+
+    // Flat petal disc
+    const petals = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.022, 6), petalMat);
+    petals.position.y = 0.30;
+    group.add(petals);
+
+    // Round center
+    const center = new THREE.Mesh(new THREE.SphereGeometry(0.058, 5, 4), centerMat);
+    center.position.y = 0.32;
+    group.add(center);
+
+    group.position.set(x, gy, z);
+    group.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(group);
+    placed++;
+  }
 }
 
 // ─── Goal particle ring ───────────────────────────────────────
@@ -706,14 +773,14 @@ function animate() {
         marimoBody.position.y = minY;
         if (marimoBody.velocity.y < 0) marimoBody.velocity.y = 0;
       }
-      // Slope gravity: project world gravity onto terrain slope
+      // Slope gravity: gentle enough that joystick can push uphill
       const dh = 0.5;
       const sx = (terrainH(mx + dh, mz) - terrainH(mx - dh, mz)) / (2 * dh);
       const sz = (terrainH(mx, mz + dh) - terrainH(mx, mz - dh)) / (2 * dh);
       marimoBody.applyForce(
-        new CANNON.Vec3(sx * CFG.GRAVITY * marimoBody.mass,
+        new CANNON.Vec3(sx * (-7) * marimoBody.mass,
                         0,
-                        sz * CFG.GRAVITY * marimoBody.mass),
+                        sz * (-7) * marimoBody.mass),
         marimoBody.position
       );
     }
