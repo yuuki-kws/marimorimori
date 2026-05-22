@@ -530,7 +530,7 @@ function buildTrees() {
 
     if (isCedar) {
       // Cedar: stacked irregular cones – 4-6 meshes total, very low poly
-      const numCones = 4 + Math.floor(Math.random() * 3);
+      const numCones = 2;
       const capBase  = gy + th * (trunkFrac - 0.04);
       const capTop   = gy + th * 0.94;
       const step     = (capTop - capBase) / numCones;
@@ -551,7 +551,7 @@ function buildTrees() {
     } else {
       // Broadleaf: 2-3 irregular blob spheres – organic but cheap
       const crownY = gy + th * 0.66;
-      const nBlobs = 2 + Math.floor(Math.random() * 2);
+      const nBlobs = 2;
       for (let i = 0; i < nBlobs; i++) {
         const a  = (i / nBlobs) * Math.PI * 2 + Math.random() * 1.8;
         const d  = i === 0 ? 0 : coneR * (0.26 + Math.random() * 0.40);
