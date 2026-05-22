@@ -151,7 +151,7 @@ const CFG = {
     { xMin: -28, xMax: 28, zMin: -28, zMax: -16, yMax: 0.7 }, // 前半の川
     { xMin: -28, xMax: 28, zMin:  32, zMax:  44, yMax: 0.7 }, // 後半の川
   ],
-  TILT_FORCE  : 22,
+  TILT_FORCE  : 8,
   GRAVITY     : -24,
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
@@ -359,8 +359,8 @@ function buildStage() {
 
   marimoBody = new CANNON.Body({ mass: 0.3 });
   marimoBody.addShape(new CANNON.Sphere(0.3));
-  marimoBody.linearDamping  = 0.35;
-  marimoBody.angularDamping = 0.35;
+  marimoBody.linearDamping  = 0.55;
+  marimoBody.angularDamping = 0.55;
   world.addBody(marimoBody);
 
   resetMarimo();
