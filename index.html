@@ -146,10 +146,11 @@
 const CFG = {
   START       : { x: 0, y: 1.0, z: -185 },
   GOAL        : { x: 0, z:  185, radius: 3.5 },
-  // River zones – 2 sections (XZ bbox, y contact threshold)
-  RIVERS      : [
-    { xMin: -18, xMax: 18, zMin: -68, zMax: -56, yMax: 0.7 }, // 前半の川
-    { xMin: -18, xMax: 18, zMin:  56, zMax:  68, yMax: 0.7 }, // 後半の川
+  // Pit zones – circular sinkholes (game over on contact)
+  PITS        : [
+    { x: -4, z: -65, r: 9  },  // 前半の穴
+    { x:  9, z:   5, r: 8  },  // 中間の穴
+    { x: -5, z:  68, r: 9  },  // 後半の穴
   ],
   TILT_FORCE  : 4,
   GRAVITY     : -24,
@@ -254,17 +255,20 @@ function terrainH(wx, wz) {
   // Flatten near start & goal
   const startFade = Math.min(1, Math.max(0, (wz - CFG.START.z - 8) / 15));
   const goalFade  = Math.min(1, Math.max(0, (CFG.GOAL.z  - wz - 8) / 15));
-  // Flatten in / near each river zone
-  let rFade = 1;
-  for (const R of CFG.RIVERS) {
-    const m = 10;
-    if (wz >= R.zMin && wz <= R.zMax) { rFade = 0; break; }
-    if (wz > R.zMin - m && wz < R.zMax + m) {
-      const d = wz < R.zMin ? R.zMin - wz : wz - R.zMax;
-      rFade = Math.min(rFade, d / m);
+  // Pit zones – terrain sinks into dark sinkholes
+  let pFade = 1, pitDip = 0;
+  for (const P of CFG.PITS) {
+    const d = Math.sqrt((wx - P.x) * (wx - P.x) + (wz - P.z) * (wz - P.z));
+    if (d < P.r) {
+      const t = d / P.r;          // 0 at centre, 1 at rim
+      pFade    = Math.min(pFade, t);
+      pitDip   = Math.min(pitDip, -2.8 * (1 - t));
+      break;
     }
+    const m = 9;
+    if (d < P.r + m) pFade = Math.min(pFade, (d - P.r) / m);
   }
-  const fade = Math.min(startFade, goalFade) * rFade;
+  const fade = Math.min(startFade, goalFade) * pFade;
 
   // Multi-frequency hills (max combined ~5.8 units)
   const h =
@@ -273,8 +277,8 @@ function terrainH(wx, wz) {
     Math.cos(wx * 0.22  + wz * 0.17) * 0.8 +
     Math.sin(wz * 0.055) * 3.0;
 
-  // Clamp to ≥ 0 so terrain only rises above the flat physics plane
-  return Math.max(0, h * fade);
+  // pitDip ≤ 0 carves the sinkhole; terrain rises above flat physics plane elsewhere
+  return Math.max(0, h * fade) + pitDip;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -339,36 +343,49 @@ function buildStage() {
   // ── Rock obstacles (16 pcs) ────────────────────────────────
   spawnRocks(16);
 
-  // ── Rivers (2 sections) – deep visual trick ─────────────────
-  const riverBedMat   = new THREE.MeshLambertMaterial({ color: 0x03080e });
-  const riverBodyMat  = new THREE.MeshLambertMaterial({ color: 0x0c3d72, transparent: true, opacity: 0.58 });
-  const riverGlintMat = new THREE.MeshBasicMaterial({ color: 0x3a6ecc, transparent: true, opacity: 0.20 });
-  CFG.RIVERS.forEach(R => {
-    const rw  = R.xMax - R.xMin;
-    const rd  = R.zMax - R.zMin;
-    const rcx = (R.xMin + R.xMax) / 2;
-    const rcz = (R.zMin + R.zMax) / 2;
-    const geo = new THREE.PlaneGeometry(rw, rd);
-    // Dark riverbed far below for depth illusion (visible through semi-transparent water)
-    const bed = new THREE.Mesh(new THREE.PlaneGeometry(rw, rd), riverBedMat);
-    bed.rotation.x = -Math.PI / 2;
-    bed.position.set(rcx, -1.8, rcz);
-    scene.add(bed);
-    // Inner bank walls (dark vertical panels at river edges give canyon feel)
-    [[-rw / 2, 0], [rw / 2, Math.PI]].forEach(([ox, ry]) => {
-      const wall = new THREE.Mesh(new THREE.PlaneGeometry(rd, 2.0), riverBedMat);
-      wall.rotation.y = ry;
-      wall.position.set(rcx + ox, -0.9, rcz);
-      scene.add(wall);
-    });
-    const body = new THREE.Mesh(geo, riverBodyMat);
-    body.rotation.x = -Math.PI / 2;
-    body.position.set(rcx, 0.06, rcz);
-    scene.add(body);
-    const glint = new THREE.Mesh(geo, riverGlintMat);
-    glint.rotation.x = -Math.PI / 2;
-    glint.position.set(rcx, 0.11, rcz);
-    scene.add(glint);
+  // ── Sinkholes (pit visuals) ───────────────────────────────────
+  const pitVoidMat = new THREE.MeshBasicMaterial({ color: 0x010103, side: THREE.DoubleSide });
+  const pitEdgeMat = new THREE.MeshLambertMaterial({ color: 0x1a120a });
+  const pitFogMat  = new THREE.MeshBasicMaterial({ color: 0x08060f, transparent: true, opacity: 0.55 });
+  CFG.PITS.forEach(P => {
+    // Dark abyss disk at the bottom of the depression
+    const void_ = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.98, 32), pitVoidMat);
+    void_.rotation.x = -Math.PI / 2;
+    void_.position.set(P.x, -2.6, P.z);
+    scene.add(void_);
+
+    // Slightly lighter ring at the rim to mark the danger edge
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(P.r * 0.88, P.r * 1.08, 32),
+      new THREE.MeshBasicMaterial({ color: 0x2a1a08, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(P.x, 0.04, P.z);
+    scene.add(ring);
+
+    // Misty fog disk at ground level – eerie purple-black haze
+    const fog = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.82, 24), pitFogMat);
+    fog.rotation.x = -Math.PI / 2;
+    fog.position.set(P.x, 0.08, P.z);
+    scene.add(fog);
+
+    // Jagged rocks around the rim
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2 + Math.random() * 0.5;
+      const dist  = P.r * (0.92 + Math.random() * 0.22);
+      const rx = P.x + Math.cos(angle) * dist;
+      const rz = P.z + Math.sin(angle) * dist;
+      const rr = 0.4 + Math.random() * 0.7;
+      const rock = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(rr, 0),
+        pitEdgeMat
+      );
+      rock.scale.set(0.7 + Math.random() * 0.5, 0.4 + Math.random() * 0.4, 0.7 + Math.random() * 0.5);
+      rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
+      rock.position.set(rx, terrainH(rx, rz) + rr * 0.25, rz);
+      rock.castShadow = true;
+      scene.add(rock);
+    }
   });
 
   // ── Decorative trees (visual depth markers) ─────────────────
@@ -412,8 +429,8 @@ function spawnRocks(count) {
 
     if (dist2D(x, z, CFG.START.x, CFG.START.z) < 12) continue;
     if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 14) continue;
-    if (CFG.RIVERS.some(R =>
-      x > R.xMin && x < R.xMax && z > R.zMin && z < R.zMax)) continue;
+    if (CFG.PITS.some(P =>
+      Math.sqrt((x - P.x) ** 2 + (z - P.z) ** 2) < P.r + 1)) continue;
 
     const gy  = terrainH(x, z);
     const sx  = 0.65 + Math.random() * 0.9;   // non-uniform scaling
@@ -470,10 +487,9 @@ function buildTrees() {
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
 
-    // Keep river zones clear
-    if (CFG.RIVERS.some(R =>
-      bx > R.xMin - 1.5 && bx < R.xMax + 1.5 &&
-      bz > R.zMin - 4   && bz < R.zMax + 4)) continue;
+    // Keep pit zones clear
+    if (CFG.PITS.some(P =>
+      Math.sqrt((bx - P.x) ** 2 + (bz - P.z) ** 2) < P.r + 3)) continue;
 
     const gy       = terrainH(bx, bz);
     const isCedar  = Math.random() < 0.65;
@@ -606,20 +622,20 @@ function buildRockWalls(T_W, T_L) {
 
 // ─── Wild flowers ─────────────────────────────────────────────
 function buildFlowers() {
-  const petalColors = [0xffc0d0, 0xfffacd, 0xff8caa, 0xe8b4f8, 0xffffff, 0xffe4b5, 0xffb3de];
+  const petalColors = [0xffb3c6, 0xfffacd, 0xff8caa, 0xe8b4f8, 0xffffff, 0xffe4b5,
+                       0xffb3de, 0xc8f0d0, 0xffd6aa, 0xd4b8f8, 0xffeecc, 0xb8e8ff];
   const stemMat   = new THREE.MeshLambertMaterial({ color: 0x2d6820 });
   const centerMat = new THREE.MeshLambertMaterial({ color: 0xffee22 });
 
   let placed = 0, tries = 0;
-  while (placed < 160 && ++tries < 4000) {
+  while (placed < 500 && ++tries < 10000) {
     const x = (Math.random() - 0.5) * 62;
     const z = -174 + Math.random() * 348;
 
     if (dist2D(x, z, CFG.START.x, CFG.START.z) < 9)  continue;
     if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 11) continue;
-    if (CFG.RIVERS.some(R =>
-      x > R.xMin - 1 && x < R.xMax + 1 &&
-      z > R.zMin - 1 && z < R.zMax + 1)) continue;
+    if (CFG.PITS.some(P =>
+      Math.sqrt((x - P.x) ** 2 + (z - P.z) ** 2) < P.r + 2)) continue;
 
     const gy  = terrainH(x, z);
     const col = petalColors[Math.floor(Math.random() * petalColors.length)];
@@ -841,7 +857,7 @@ function animate() {
     const p = marimoBody.position;
     if (timeLeft  <= 0)    { endGame('timeout'); return; }
     if (p.y       < CFG.FALL_Y) { endGame('fall');    return; }
-    if (inRiver(p))             { endGame('river');   return; }
+    if (inPit(p))               { endGame('pit');     return; }
     if (atGoal(p))              { endGame('clear');   return; }
 
     // ── Goal FX animation ─────────────────────────────────────
@@ -862,11 +878,9 @@ function animate() {
 // ════════════════════════════════════════════════════════════════
 //  CONDITION CHECKS
 // ════════════════════════════════════════════════════════════════
-function inRiver(p) {
-  return CFG.RIVERS.some(R =>
-    p.x > R.xMin && p.x < R.xMax &&
-    p.z > R.zMin && p.z < R.zMax &&
-    p.y < R.yMax
+function inPit(p) {
+  return CFG.PITS.some(P =>
+    Math.sqrt((p.x - P.x) * (p.x - P.x) + (p.z - P.z) * (p.z - P.z)) < P.r * 0.68
   );
 }
 
@@ -930,8 +944,8 @@ function endGame(reason) {
                m: () => `残り ${Math.ceil(timeLeft)} 秒でクリア！すごい！` },
     fall   : { t: '落下…',             c: '#ff6b6b',
                m: () => 'マリモが落ちてしまいました' },
-    river  : { t: 'ドボン！',          c: '#55aaff',
-               m: () => '川に流されてしまいました！' },
+    pit    : { t: '奈落！',            c: '#bb88ff',
+               m: () => '穴に落ちてしまいました！' },
     timeout: { t: 'タイムオーバー！',  c: '#ff9944',
                m: () => '時間切れです。もう一度挑戦！' },
   };
