@@ -529,23 +529,19 @@ function buildTrees() {
     }
 
     if (isCedar) {
-      // Cedar: stacked irregular cones – 4-6 meshes total, very low poly
-      const numCones = 2;
-      const capBase  = gy + th * (trunkFrac - 0.04);
-      const capTop   = gy + th * 0.94;
-      const step     = (capTop - capBase) / numCones;
-      for (let i = 0; i < numCones; i++) {
-        const t    = i / Math.max(1, numCones - 1);
-        const r    = coneR * (1.0 - t * 0.74) * (0.80 + Math.random() * 0.34);
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(r, step * 1.55, 6),
-          leafMat
-        );
-        cone.scale.set(0.80 + Math.random()*0.34, 1.0, 0.80 + Math.random()*0.34);
+      // Cedar: 2 flat umbrella-cones stacked from trunk top upward
+      // Each cone: diameter > height (r * 0.55-0.70), base at trunk top then overlap
+      let stackY = gy + trunkVisH;  // start right at trunk top
+      for (let i = 0; i < 2; i++) {
+        const t = i;  // 0 = bottom, 1 = top
+        const r = coneR * (1.0 - t * 0.50) * (0.88 + Math.random() * 0.22);
+        const h = r * (0.52 + Math.random() * 0.18);  // height < radius → wide flat cone
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
         cone.rotation.y = Math.random() * Math.PI * 2;
-        cone.position.set(bx, capBase + t * (capTop - capBase), bz);
+        cone.position.set(bx, stackY + h / 2, bz);  // base at stackY, centre at +h/2
         cone.castShadow = (i === 0);
         scene.add(cone);
+        stackY += h * 0.70;  // next cone overlaps slightly
       }
 
     } else {
