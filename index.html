@@ -144,12 +144,12 @@
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 const CFG = {
-  START       : { x: 0, y: 1.0, z: -100 },
-  GOAL        : { x: 0, z:  100, radius: 3.5 },
+  START       : { x: 0, y: 1.0, z: -185 },
+  GOAL        : { x: 0, z:  185, radius: 3.5 },
   // River zones – 2 sections (XZ bbox, y contact threshold)
   RIVERS      : [
-    { xMin: -28, xMax: 28, zMin: -28, zMax: -16, yMax: 0.7 }, // 前半の川
-    { xMin: -28, xMax: 28, zMin:  32, zMax:  44, yMax: 0.7 }, // 後半の川
+    { xMin: -18, xMax: 18, zMin: -68, zMax: -56, yMax: 0.7 }, // 前半の川
+    { xMin: -18, xMax: 18, zMin:  56, zMax:  68, yMax: 0.7 }, // 後半の川
   ],
   TILT_FORCE  : 4,
   GRAVITY     : -24,
@@ -219,7 +219,7 @@ function init() {
   scene.add(fill);
 
   // Komorebi – pools of warm sunlight filtering through the canopy
-  [[-20,-62],[14,-42],[-6,-18],[22,8],[-16,34],[8,60],[-22,82],[4,22]].forEach(([kx,kz]) => {
+  [[-15,-160],[10,-120],[-8,-80],[16,-40],[-12,0],[8,40],[-16,80],[4,120],[-10,160],[12,-5]].forEach(([kx,kz]) => {
     const spot = new THREE.SpotLight(0xffe890, 2.8);
     spot.position.set(kx, 18, kz);
     spot.angle    = Math.PI / 13;
@@ -281,10 +281,10 @@ function terrainH(wx, wz) {
 // ════════════════════════════════════════════════════════════════
 function buildStage() {
 
-  // ── Bumpy grassland terrain ────────────────────────────────
-  const T_SX = 40, T_SZ = 80;           // segments
-  const T_W  = 115, T_L = 230;          // world size
-  const T_ES = T_W / T_SX;              // element size ≈ 2.875
+  // ── Bumpy forest terrain (narrow & long, same area as before) ─
+  const T_SX = 28, T_SZ = 152;          // segments
+  const T_W  = 70,  T_L = 380;          // world size  (70×380 ≈ 26 600 m²)
+  const T_ES = T_W / T_SX;              // element size = 2.5
 
   // Three.js mesh with displaced vertices
   const terrainGeo = new THREE.PlaneGeometry(T_W, T_L, T_SX, T_SZ);
@@ -318,10 +318,10 @@ function buildStage() {
 
   // ── Invisible boundary walls ────────────────────────────────
   [
-    { p: [0,    6, -114], he: [57, 6,   1] },
-    { p: [0,    6,  114], he: [57, 6,   1] },
-    { p: [-57,  6,    0], he: [1,  6, 113] },
-    { p: [ 57,  6,    0], he: [1,  6, 113] },
+    { p: [0,    6, -191], he: [35, 6,   1] },
+    { p: [0,    6,  191], he: [35, 6,   1] },
+    { p: [-36,  6,    0], he: [1,  6, 190] },
+    { p: [ 36,  6,    0], he: [1,  6, 190] },
   ].forEach(({ p, he }) => {
     const b = new CANNON.Body({ mass: 0 });
     b.addShape(new CANNON.Box(new CANNON.Vec3(...he)));
@@ -354,23 +354,8 @@ function buildStage() {
   // ── Decorative trees (visual depth markers) ─────────────────
   buildTrees();
 
-  // ── Goal – yellow ring ─────────────────────────────────────
-  ringMesh = new THREE.Mesh(
-    new THREE.TorusGeometry(3, 0.32, 16, 64),
-    new THREE.MeshLambertMaterial({ color: 0xffd700, emissive: 0x886600 })
-  );
-  ringMesh.position.set(CFG.GOAL.x, 3.2, CFG.GOAL.z);
-  scene.add(ringMesh);
-
-  // Goal ground disc
-  const goalDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(CFG.GOAL.radius, 64),
-    new THREE.MeshLambertMaterial({ color: 0xffd700, transparent: true, opacity: 0.28 })
-  );
-  goalDisc.rotation.x = -Math.PI / 2;
-  goalDisc.position.set(CFG.GOAL.x, 0.05, CFG.GOAL.z);
-  scene.add(goalDisc);
-
+  // ── Goal – cave entrance ───────────────────────────────────
+  buildCave();
   buildGoalParticles();
 
   // ── Marimo ─────────────────────────────────────────────────
@@ -389,107 +374,110 @@ function buildStage() {
 // ─── Rock placement helper ────────────────────────────────────
 function spawnRocks(count) {
   const mats = [
-    new THREE.MeshLambertMaterial({ color: 0x7a7a7a }),
-    new THREE.MeshLambertMaterial({ color: 0x8a8070 }),
-    new THREE.MeshLambertMaterial({ color: 0x6a6a72 }),
+    new THREE.MeshLambertMaterial({ color: 0x4a4238 }),
+    new THREE.MeshLambertMaterial({ color: 0x3d3528 }),
+    new THREE.MeshLambertMaterial({ color: 0x5a5248 }),
+    new THREE.MeshLambertMaterial({ color: 0x2d3820 }), // mossy
+    new THREE.MeshLambertMaterial({ color: 0x3a3030 }),
   ];
   let placed = 0, tries = 0;
 
-  while (placed < count && ++tries < 800) {
-    const x = (Math.random() - 0.5) * 88;
-    const z = (Math.random() - 0.5) * 190;
-    const w = 1.5 + Math.random() * 5.5;
-    const h = 1.5 + Math.random() * 5.5;
-    const d = 1.5 + Math.random() * 5.5;
+  while (placed < count && ++tries < 1200) {
+    const x = (Math.random() - 0.5) * 58;
+    const z = (Math.random() - 0.5) * 360;
+    const r = 0.7 + Math.random() * 2.4;   // bounding radius
 
     if (dist2D(x, z, CFG.START.x, CFG.START.z) < 12) continue;
-    if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 12) continue;
-    // Keep river interiors and side corridors clear
-    const inRiverZone = CFG.RIVERS.some(R =>
-      x > R.xMin && x < R.xMax && z > R.zMin && z < R.zMax
-    );
-    if (inRiverZone) continue;
-    const blocksCorridor = CFG.RIVERS.some(R =>
-      z > R.zMin - 5 && z < R.zMax + 5 && Math.abs(x) > R.xMax - 2
-    );
-    if (blocksCorridor) continue;
+    if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 14) continue;
+    if (CFG.RIVERS.some(R =>
+      x > R.xMin && x < R.xMax && z > R.zMin && z < R.zMax)) continue;
 
-    const gy = terrainH(x, z);
+    const gy  = terrainH(x, z);
+    const sx  = 0.65 + Math.random() * 0.9;   // non-uniform scaling
+    const sy  = 0.45 + Math.random() * 0.65;
+    const sz  = 0.65 + Math.random() * 0.9;
+    const mat = mats[Math.floor(Math.random() * mats.length)];
+
     const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      mats[Math.floor(Math.random() * mats.length)]
+      new THREE.IcosahedronGeometry(r, r > 1.8 ? 1 : 0),
+      mat
     );
-    mesh.position.set(x, gy + h / 2, z);
+    mesh.scale.set(sx, sy, sz);
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
+    mesh.position.set(x, gy + r * sy * 0.45, z);
     mesh.castShadow = mesh.receiveShadow = true;
     scene.add(mesh);
 
+    // Sphere physics approximation (marimo rolls around rocks naturally)
     const body = new CANNON.Body({ mass: 0 });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
-    body.position.set(x, gy + h / 2, z);
+    body.addShape(new CANNON.Sphere(r * Math.max(sx, sy, sz) * 0.72));
+    body.position.set(x, gy + r * sy * 0.45, z);
     world.addBody(body);
 
     placed++;
   }
 }
 
-// ─── Dense forest (komorebi atmosphere) ───────────────────────
+// ─── Dense forest – packed canopy, sky visible through gaps ───
 function buildTrees() {
   const trunkMats = [
     new THREE.MeshLambertMaterial({ color: 0x3d2510 }),
     new THREE.MeshLambertMaterial({ color: 0x4a2e18 }),
-    new THREE.MeshLambertMaterial({ color: 0x5c3820 }),
+    new THREE.MeshLambertMaterial({ color: 0x2e1c0d }),
   ];
   const leafMats = [
-    new THREE.MeshLambertMaterial({ color: 0x0f3d0e }),
+    new THREE.MeshLambertMaterial({ color: 0x0b3009 }),
+    new THREE.MeshLambertMaterial({ color: 0x133810 }),
     new THREE.MeshLambertMaterial({ color: 0x174d15 }),
     new THREE.MeshLambertMaterial({ color: 0x1a5c1a }),
     new THREE.MeshLambertMaterial({ color: 0x1e6b1e }),
-    new THREE.MeshLambertMaterial({ color: 0x133810 }),
+    new THREE.MeshLambertMaterial({ color: 0x0f4010 }),
   ];
 
   let placed = 0, tries = 0;
-  while (placed < 140 && ++tries < 4000) {
-    const bx = (Math.random() - 0.5) * 108;
-    const bz = -108 + Math.random() * 218;
+  while (placed < 280 && ++tries < 8000) {
+    const bx = (Math.random() - 0.5) * 64;   // within ±32 (stage ±35)
+    const bz = -178 + Math.random() * 356;
 
-    // Very narrow gap at center so marimo can pass; inner area less dense
-    if (Math.abs(bx) < 5) continue;
-    if (Math.abs(bx) < 14 && Math.random() < 0.65) continue;
+    // Narrow corridor only: trees can get very close to the path
+    if (Math.abs(bx) < 3.2) continue;
+    // Inner zone (±3–10): allow 45% through (packed near the path)
+    if (Math.abs(bx) < 10 && Math.random() < 0.45) continue;
 
-    // Keep start / goal clear
-    if (bz < -88 || bz > 88) continue;
+    // Keep start and goal areas open
+    if (bz < -172 || bz > 172) continue;
 
     // Keep river zones clear
     if (CFG.RIVERS.some(R =>
-      bx > R.xMin - 2 && bx < R.xMax + 2 &&
-      bz > R.zMin - 5 && bz < R.zMax + 5)) continue;
+      bx > R.xMin - 1.5 && bx < R.xMax + 1.5 &&
+      bz > R.zMin - 4   && bz < R.zMax + 4)) continue;
 
     const gy       = terrainH(bx, bz);
-    const isCedar  = Math.random() < 0.62; // tall narrow (sugi) vs spreading (matsu)
-    const th       = isCedar ? (7 + Math.random() * 9) : (4 + Math.random() * 5);
-    const coneR    = isCedar ? (1.1 + Math.random() * 0.9) : (1.9 + Math.random() * 1.8);
-    const layers   = isCedar ? (3 + Math.floor(Math.random() * 2)) : 2;
-    const layerGap = isCedar ? 1.4 : 2.0;
+    const isCedar  = Math.random() < 0.65;
+    const th       = isCedar ? (9 + Math.random() * 10) : (5 + Math.random() * 6);
+    const coneR    = isCedar ? (1.2 + Math.random() * 1.1) : (2.2 + Math.random() * 2.0);
+    const layers   = isCedar ? (3 + Math.floor(Math.random() * 3)) : (2 + Math.floor(Math.random() * 2));
+    const layerGap = isCedar ? 1.3 : 1.9;
     const trunkMat = trunkMats[Math.floor(Math.random() * trunkMats.length)];
     const leafMat  = leafMats [Math.floor(Math.random() * leafMats.length)];
 
-    // Trunk
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.18 + Math.random() * 0.14, th, 5),
+      new THREE.CylinderGeometry(0.07, 0.15 + Math.random() * 0.12, th, 5),
       trunkMat
     );
     trunk.position.set(bx, gy + th / 2, bz);
     trunk.castShadow = true;
     scene.add(trunk);
 
-    // Foliage layers
     for (let layer = 0; layer < layers; layer++) {
-      const r = Math.max(0.4, coneR - layer * (isCedar ? 0.22 : 0.38));
+      const r = Math.max(0.4, coneR - layer * (isCedar ? 0.20 : 0.36));
       const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(r, isCedar ? 2.4 : 3.2, 6),
+        new THREE.ConeGeometry(r, isCedar ? 2.6 : 3.4, 8),   // 8-sided for realism
         leafMat
       );
-      cone.position.set(bx, gy + th * (isCedar ? 0.42 : 0.52) + layer * layerGap, bz);
+      // Slight random rotation to break up uniformity
+      cone.rotation.y = Math.random() * Math.PI * 2;
+      cone.position.set(bx, gy + th * (isCedar ? 0.40 : 0.50) + layer * layerGap, bz);
       cone.castShadow = true;
       scene.add(cone);
     }
@@ -500,14 +488,14 @@ function buildTrees() {
 
 // ─── Goal particle ring ───────────────────────────────────────
 function buildGoalParticles() {
-  const N = 320;
+  const N = 200;
   const pos = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) {
     const a = Math.random() * Math.PI * 2;
-    const r = 2.2 + Math.random() * 2.2;
+    const r = 1.6 + Math.random() * 1.8;   // tighter ring around cave mouth
     pos[i * 3]     = Math.cos(a) * r;
-    pos[i * 3 + 1] = Math.random() * 5.5;
-    pos[i * 3 + 2] = Math.sin(a) * r;
+    pos[i * 3 + 1] = Math.sin(a) * r + 1.5;  // oval following the opening
+    pos[i * 3 + 2] = (Math.random() - 0.5) * 1.2;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -517,6 +505,71 @@ function buildGoalParticles() {
   goalParticles = new THREE.Points(geo, particleMat);
   goalParticles.position.set(CFG.GOAL.x, 0, CFG.GOAL.z);
   scene.add(goalParticles);
+}
+
+// ─── Cave entrance goal ───────────────────────────────────────
+function buildCave() {
+  const G   = CFG.GOAL;
+  const gy  = terrainH(G.x, G.z);
+  const cR  = 2.6;   // opening radius
+
+  const rockMat = new THREE.MeshLambertMaterial({ color: 0x3a2e24 });
+  const mossMat = new THREE.MeshLambertMaterial({ color: 0x293820 });
+  const darkMat = new THREE.MeshBasicMaterial  ({ color: 0x010205, side: THREE.FrontSide });
+
+  // Dark void (circle at entrance, facing the approaching marimo)
+  const dark = new THREE.Mesh(new THREE.CircleGeometry(cR * 0.88, 16), darkMat);
+  dark.rotation.y = Math.PI;
+  dark.position.set(G.x, gy + cR * 0.58, G.z + 0.15);
+  scene.add(dark);
+
+  // Tunnel interior walls (visible from outside through the opening)
+  const tunnel = new THREE.Mesh(
+    new THREE.CylinderGeometry(cR, cR * 0.9, 7, 14, 1, true),
+    new THREE.MeshLambertMaterial({ color: 0x1a1208, side: THREE.BackSide })
+  );
+  tunnel.rotation.x = Math.PI / 2;
+  tunnel.position.set(G.x, gy + cR * 0.58, G.z + 3.6);
+  scene.add(tunnel);
+
+  // Rock face – left and right pillars
+  const ph = cR * 2 + 7, pw = 8.5, pd = 5;
+  [-1, 1].forEach(side => {
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, pd), rockMat);
+    pillar.position.set(G.x + side * (cR + pw / 2), gy + ph / 2, G.z + pd / 2);
+    pillar.castShadow = pillar.receiveShadow = true;
+    scene.add(pillar);
+  });
+
+  // Rock face – overhang / cliff above opening
+  const oh = 9, ow = cR * 2 + pw * 2;
+  const overhang = new THREE.Mesh(new THREE.BoxGeometry(ow, oh, pd + 2), rockMat);
+  overhang.rotation.z = 0.06;
+  overhang.position.set(G.x + 1, gy + cR * 2 + oh / 2, G.z + pd / 2 + 1);
+  overhang.castShadow = overhang.receiveShadow = true;
+  scene.add(overhang);
+
+  // Mossy rubble rocks around entrance
+  [[-3.5,-0.4],[3.2,-0.5],[-2.2,-0.8],[2.8,-0.7],[-4.8,0.4],[4.5,0.3],[-1.0,-0.9],[1.5,-0.8]].forEach(([ox,oz],i) => {
+    const r = 0.45 + Math.random() * 0.75;
+    const rock = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(r, 1),
+      i % 3 === 0 ? mossMat : rockMat
+    );
+    rock.scale.set(0.8 + Math.random() * 0.6, 0.5 + Math.random() * 0.5, 0.8 + Math.random() * 0.6);
+    rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
+    rock.position.set(G.x + ox, gy + r * 0.4, G.z + oz);
+    rock.castShadow = rock.receiveShadow = true;
+    scene.add(rock);
+  });
+
+  // Subtle goal indicator – faint glowing ring at cave mouth
+  ringMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(cR * 0.82, 0.12, 8, 32),
+    new THREE.MeshBasicMaterial({ color: 0x4499ff, transparent: true, opacity: 0.35 })
+  );
+  ringMesh.position.set(G.x, gy + cR * 0.58, G.z - 0.1);
+  scene.add(ringMesh);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -629,7 +682,7 @@ function animate() {
     if (atGoal(p))              { endGame('clear');   return; }
 
     // ── Goal FX animation ─────────────────────────────────────
-    ringMesh.rotation.y     += dt * 1.2;
+    if (ringMesh) ringMesh.rotation.y += dt * 1.2;
     goalParticles.rotation.y += dt * 0.9;
     particleMat.opacity = 0.55 + 0.45 * Math.sin(Date.now() * 0.003);
   }
