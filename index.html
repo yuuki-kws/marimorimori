@@ -252,7 +252,8 @@ function terrainH(wx, wz) {
     Math.cos(wx * 0.22  + wz * 0.17) * 0.8 +
     Math.sin(wz * 0.055) * 3.0;
 
-  return h * fade;
+  // Clamp to ≥ 0 so terrain only rises above the flat physics plane
+  return Math.max(0, h * fade);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -272,8 +273,8 @@ function buildStage() {
     for (let j = 0; j <= T_SZ; j++) {
       const idx = j * (T_SX + 1) + i;
       const wx  = -T_W / 2 + i * T_ES;
-      const wz  =  T_L / 2 - j * T_ES; // j=0→+115, j=T_SZ→-115
-      tPos.setZ(idx, terrainH(wx, wz)); // local Z → world Y after rotation
+      const wz  = -T_L / 2 + j * T_ES; // j=0→-115, j=T_SZ→+115 (correct world Z)
+      tPos.setZ(idx, terrainH(wx, wz));
     }
   }
   tPos.needsUpdate = true;
@@ -287,28 +288,13 @@ function buildStage() {
   terrainMesh.receiveShadow = true;
   scene.add(terrainMesh);
 
-  // Cannon.js Heightfield physics
-  // hfData[xi][yi]: xi→world X,  yi=0→world Z=-115, yi=T_SZ→world Z=+115
-  const hfData = [];
-  for (let xi = 0; xi <= T_SX; xi++) {
-    hfData.push([]);
-    for (let yi = 0; yi <= T_SZ; yi++) {
-      const wx = -T_W / 2 + xi * T_ES;
-      const wz = -T_L / 2 + yi * T_ES;
-      hfData[xi].push(terrainH(wx, wz));
-    }
-  }
-  // minValue / maxValue must be provided so Cannon.js can compute a valid AABB;
-  // without them the Y range is NaN and NaiveBroadphase silently skips this body.
-  const hfMinV = -10, hfMaxV = 10;
-  const hfBody = new CANNON.Body({ mass: 0 });
-  hfBody.addShape(new CANNON.Heightfield(hfData, {
-    elementSize: T_ES,
-    minValue: hfMinV,
-    maxValue: hfMaxV,
-  }));
-  hfBody.position.set(-T_W / 2, 0, -T_L / 2);
-  world.addBody(hfBody);
+  // Cannon.js v0.6.2 has no sphere-Heightfield narrowphase handler, so we use
+  // a flat Plane at y=0 for basic sphere contact, and apply a per-frame
+  // height constraint in animate() to keep the marimo on top of the visual hills.
+  const groundBody = new CANNON.Body({ mass: 0 });
+  groundBody.addShape(new CANNON.Plane());
+  groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+  world.addBody(groundBody);
 
   // ── Invisible boundary walls ────────────────────────────────
   [
@@ -500,6 +486,30 @@ function animate() {
 
     // ── Physics step ─────────────────────────────────────────
     world.step(1 / 60, dt, 3);
+
+    // ── Terrain height constraint (Plane + visual hills) ──────
+    // Cannon.js Plane keeps marimo above y=0; this constraint raises it
+    // further to sit on top of the bumpy visual terrain.
+    {
+      const mx = marimoBody.position.x;
+      const mz = marimoBody.position.z;
+      const gy = terrainH(mx, mz);
+      const minY = gy + 0.3; // 0.3 = marimo radius
+      if (marimoBody.position.y < minY) {
+        marimoBody.position.y = minY;
+        if (marimoBody.velocity.y < 0) marimoBody.velocity.y = 0;
+      }
+      // Slope gravity: project world gravity onto terrain slope
+      const dh = 0.5;
+      const sx = (terrainH(mx + dh, mz) - terrainH(mx - dh, mz)) / (2 * dh);
+      const sz = (terrainH(mx, mz + dh) - terrainH(mx, mz - dh)) / (2 * dh);
+      marimoBody.applyForce(
+        new CANNON.Vec3(sx * CFG.GRAVITY * marimoBody.mass,
+                        0,
+                        sz * CFG.GRAVITY * marimoBody.mass),
+        marimoBody.position
+      );
+    }
 
     // ── Direction-aware low camera ────────────────────────────
     const vel = marimoBody.velocity;
