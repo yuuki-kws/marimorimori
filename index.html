@@ -197,7 +197,7 @@ function init() {
   // ── Camera ─────────────────────────────────────────────────
   camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 500);
   camera.position.set(CFG.START.x, CFG.START.y + 1, CFG.START.z - 4);
-  camera.lookAt(CFG.START.x, CFG.START.y, CFG.START.z + 6);
+  camera.lookAt(CFG.START.x, CFG.START.y + 4.0, CFG.START.z + 9);
 
   // ── Lighting ───────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -463,10 +463,10 @@ function animate() {
     tp.x += (tx - tp.x) * 0.09;
     tp.y += (ty - tp.y) * 0.11;
     tp.z += (tz - tp.z) * 0.09;
-    // Look well ahead to show stage depth
+    // Look ahead + upward: horizon at ~lower-third of screen (~14° above horizontal)
     camera.lookAt(
       marimoBody.position.x - camBehindX * 9,
-      marimoBody.position.y + 0.5,
+      marimoBody.position.y + 4.0,
       marimoBody.position.z - camBehindZ * 9
     );
 
