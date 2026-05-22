@@ -151,7 +151,7 @@ const CFG = {
     { xMin: -28, xMax: 28, zMin: -28, zMax: -16, yMax: 0.7 }, // 前半の川
     { xMin: -28, xMax: 28, zMin:  32, zMax:  44, yMax: 0.7 }, // 後半の川
   ],
-  TILT_FORCE  : 8,
+  TILT_FORCE  : 4,
   GRAVITY     : -24,
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
@@ -183,8 +183,8 @@ function init() {
 
   // ── Scene ──────────────────────────────────────────────────
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87CEEB);
-  scene.fog = new THREE.FogExp2(0x87CEEB, 0.005);
+  scene.background = new THREE.Color(0x7fb8c8);
+  scene.fog = new THREE.FogExp2(0x7fb8c8, 0.010);
 
   // ── Renderer ───────────────────────────────────────────────
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -199,17 +199,37 @@ function init() {
   camera.position.set(CFG.START.x, CFG.START.y + 0.4, CFG.START.z - 4);
   camera.lookAt(CFG.START.x, CFG.START.y + 3.5, CFG.START.z + 9);
 
-  // ── Lighting ───────────────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  // ── Lighting: Japanese forest / komorebi ───────────────────
+  // Deep forest ambient – dim cool green, very low so shadows are dramatic
+  scene.add(new THREE.AmbientLight(0x2a4530, 0.55));
 
-  const sun = new THREE.DirectionalLight(0xfff3cc, 1.4);
-  sun.position.set(40, 70, 20);
+  // Afternoon sun – warm, angled from the side for long tree shadows
+  const sun = new THREE.DirectionalLight(0xffdd88, 3.2);
+  sun.position.set(55, 42, -30);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, {
-    near: 1, far: 300, left: -80, right: 80, top: 80, bottom: -80
+    near: 1, far: 350, left: -85, right: 85, top: 85, bottom: -85
   });
   scene.add(sun);
+
+  // Cool sky fill (opposite side) – subtle bounced light from open sky
+  const fill = new THREE.DirectionalLight(0x6090c8, 0.4);
+  fill.position.set(-40, 25, 20);
+  scene.add(fill);
+
+  // Komorebi – pools of warm sunlight filtering through the canopy
+  [[-20,-62],[14,-42],[-6,-18],[22,8],[-16,34],[8,60],[-22,82],[4,22]].forEach(([kx,kz]) => {
+    const spot = new THREE.SpotLight(0xffe890, 2.8);
+    spot.position.set(kx, 18, kz);
+    spot.angle    = Math.PI / 13;
+    spot.penumbra = 0.88;
+    spot.decay    = 2;
+    spot.distance = 32;
+    spot.target.position.set(kx + (Math.random() - 0.5) * 3, 0, kz + (Math.random() - 0.5) * 3);
+    scene.add(spot);
+    scene.add(spot.target);
+  });
 
   // ── Physics world ──────────────────────────────────────────
   world = new CANNON.World();
@@ -359,8 +379,8 @@ function buildStage() {
 
   marimoBody = new CANNON.Body({ mass: 0.3 });
   marimoBody.addShape(new CANNON.Sphere(0.3));
-  marimoBody.linearDamping  = 0.55;
-  marimoBody.angularDamping = 0.55;
+  marimoBody.linearDamping  = 0.72;
+  marimoBody.angularDamping = 0.72;
   world.addBody(marimoBody);
 
   resetMarimo();
@@ -412,32 +432,69 @@ function spawnRocks(count) {
   }
 }
 
-// ─── Decorative trees (visual depth / atmosphere) ─────────────
+// ─── Dense forest (komorebi atmosphere) ───────────────────────
 function buildTrees() {
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4423 });
-  const leafA    = new THREE.MeshLambertMaterial({ color: 0x1a5c20 });
-  const leafB    = new THREE.MeshLambertMaterial({ color: 0x267332 });
+  const trunkMats = [
+    new THREE.MeshLambertMaterial({ color: 0x3d2510 }),
+    new THREE.MeshLambertMaterial({ color: 0x4a2e18 }),
+    new THREE.MeshLambertMaterial({ color: 0x5c3820 }),
+  ];
+  const leafMats = [
+    new THREE.MeshLambertMaterial({ color: 0x0f3d0e }),
+    new THREE.MeshLambertMaterial({ color: 0x174d15 }),
+    new THREE.MeshLambertMaterial({ color: 0x1a5c1a }),
+    new THREE.MeshLambertMaterial({ color: 0x1e6b1e }),
+    new THREE.MeshLambertMaterial({ color: 0x133810 }),
+  ];
 
-  for (let z = -100; z <= 108; z += 15) {
-    [-1, 1].forEach(side => {
-      const bx = side * (44 + Math.random() * 9);
-      const bz = z + (Math.random() - 0.5) * 6;
-      const th = 4 + Math.random() * 5;
+  let placed = 0, tries = 0;
+  while (placed < 140 && ++tries < 4000) {
+    const bx = (Math.random() - 0.5) * 108;
+    const bz = -108 + Math.random() * 218;
 
-      const gy = terrainH(bx, bz);
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.42, th, 6), trunkMat);
-      trunk.position.set(bx, gy + th / 2, bz);
-      scene.add(trunk);
+    // Very narrow gap at center so marimo can pass; inner area less dense
+    if (Math.abs(bx) < 5) continue;
+    if (Math.abs(bx) < 14 && Math.random() < 0.65) continue;
 
-      for (let layer = 0; layer < 2; layer++) {
-        const cone = new THREE.Mesh(
-          new THREE.ConeGeometry(2.8 - layer * 0.6, 3.2, 6),
-          layer === 0 ? leafA : leafB
-        );
-        cone.position.set(bx, gy + th * 0.6 + layer * 1.9, bz);
-        scene.add(cone);
-      }
-    });
+    // Keep start / goal clear
+    if (bz < -88 || bz > 88) continue;
+
+    // Keep river zones clear
+    if (CFG.RIVERS.some(R =>
+      bx > R.xMin - 2 && bx < R.xMax + 2 &&
+      bz > R.zMin - 5 && bz < R.zMax + 5)) continue;
+
+    const gy       = terrainH(bx, bz);
+    const isCedar  = Math.random() < 0.62; // tall narrow (sugi) vs spreading (matsu)
+    const th       = isCedar ? (7 + Math.random() * 9) : (4 + Math.random() * 5);
+    const coneR    = isCedar ? (1.1 + Math.random() * 0.9) : (1.9 + Math.random() * 1.8);
+    const layers   = isCedar ? (3 + Math.floor(Math.random() * 2)) : 2;
+    const layerGap = isCedar ? 1.4 : 2.0;
+    const trunkMat = trunkMats[Math.floor(Math.random() * trunkMats.length)];
+    const leafMat  = leafMats [Math.floor(Math.random() * leafMats.length)];
+
+    // Trunk
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.18 + Math.random() * 0.14, th, 5),
+      trunkMat
+    );
+    trunk.position.set(bx, gy + th / 2, bz);
+    trunk.castShadow = true;
+    scene.add(trunk);
+
+    // Foliage layers
+    for (let layer = 0; layer < layers; layer++) {
+      const r = Math.max(0.4, coneR - layer * (isCedar ? 0.22 : 0.38));
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(r, isCedar ? 2.4 : 3.2, 6),
+        leafMat
+      );
+      cone.position.set(bx, gy + th * (isCedar ? 0.42 : 0.52) + layer * layerGap, bz);
+      cone.castShadow = true;
+      scene.add(cone);
+    }
+
+    placed++;
   }
 }
 
