@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>マリモ転がり大冒険</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; touch-action: none; background: #000; }
+    canvas { display: block; }
+
+    /* ── Permission / Title Screen ── */
+    #permission-screen {
+      position: fixed; inset: 0;
+      background: linear-gradient(160deg, #0d3320 0%, #1a5c30 55%, #2d5a1b 100%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100; color: white; text-align: center; padding: 32px;
+    }
+    .marimo-icon {
+      width: 80px; height: 80px;
+      background: radial-gradient(circle at 38% 38%, #5aaa30, #1a3a0f);
+      border-radius: 50%; margin: 0 auto 22px;
+      box-shadow: 0 6px 28px rgba(0,0,0,.55), inset 0 -4px 10px rgba(0,0,0,.25);
+    }
+    #permission-screen h1 { font-size: 1.9em; margin-bottom: .4em; letter-spacing: .03em; }
+    #permission-screen p  { font-size: .95em; line-height: 1.75; margin-bottom: 2.6em; opacity: .88; }
+
+    /* ── Shared button style ── */
+    .btn {
+      padding: 15px 46px; font-size: 1.15em;
+      background: linear-gradient(135deg, #4ade80, #22c55e);
+      color: #0d3320; border: none; border-radius: 50px;
+      cursor: pointer; font-weight: bold;
+      box-shadow: 0 4px 26px rgba(34,197,94,.52);
+      letter-spacing: .04em;
+    }
+    .btn:active { transform: scale(.97); }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed; top: 14px; left: 0; right: 0;
+      text-align: center; display: none;
+      z-index: 10; pointer-events: none;
+    }
+    #timer {
+      display: inline-block; font-size: 2.5em; font-weight: bold;
+      color: white; text-shadow: 0 2px 8px rgba(0,0,0,.6);
+      background: rgba(0,0,0,.28); padding: 4px 24px;
+      border-radius: 30px; backdrop-filter: blur(6px);
+      transition: color .3s;
+    }
+    #timer.danger { color: #ff4444; }
+
+    /* ── Result Screen ── */
+    #result-screen {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.74);
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 50; color: white; text-align: center; padding: 24px;
+    }
+    #result-title   { font-size: 3.2em; font-weight: bold; margin-bottom: .2em;
+                      text-shadow: 0 2px 12px rgba(0,0,0,.5); }
+    #result-message { font-size: 1.15em; margin-bottom: 2.6em; opacity: .9; }
+  </style>
+</head>
+<body>
+
+<!-- ── Permission / Title Screen ─────────────────────────── -->
+<div id="permission-screen">
+  <div class="marimo-icon"></div>
+  <h1>マリモ転がり大冒険</h1>
+  <p>
+    iPadを傾けてマリモを転がそう！<br>
+    川を避けて 60 秒以内にゴールを目指せ！<br><br>
+    <small>※ PC では矢印キー / WASD で操作できます</small>
+  </p>
+  <button class="btn" id="start-btn">ゲームスタート！</button>
+</div>
+
+<!-- ── HUD ───────────────────────────────────────────────── -->
+<div id="hud"><div id="timer">60</div></div>
+
+<!-- ── Result Screen ─────────────────────────────────────── -->
+<div id="result-screen">
+  <div id="result-title"></div>
+  <div id="result-message"></div>
+  <button class="btn" id="retry-btn">もう一度！</button>
+</div>
+
+<!-- ── CDN ───────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js"></script>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════════════════════════
+const CFG = {
+  START       : { x: 0, y: 1.5, z: -40 },
+  GOAL        : { x: 0, z: 40, radius: 3.5 },
+  // River zone (XZ bounding box, y threshold for contact)
+  RIVER       : { xMin: -26, xMax: 26, zMin: 5, zMax: 17, yMax: 2.8 },
+  TILT_FORCE  : 22,
+  GRAVITY     : -24,
+  FRICTION    : 0.8,
+  RESTITUTION : 0.3,
+  GAME_TIME   : 60,
+  FALL_Y      : -10,
+};
+
+// ════════════════════════════════════════════════════════════════
+//  GLOBALS
+// ════════════════════════════════════════════════════════════════
+let scene, camera, renderer, world, clock;
+let marimoMesh, marimoBody;
+let ringMesh, goalParticles, particleMat;
+let timeLeft = CFG.GAME_TIME;
+let gameState = 'idle';   // 'idle' | 'playing' | 'over'
+let deviceBeta = 0, deviceGamma = 0;
+const keys = {};
+
+// ════════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════════
+function init() {
+
+  // ── Scene ──────────────────────────────────────────────────
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87CEEB);
+  scene.fog = new THREE.FogExp2(0x87CEEB, 0.009);
+
+  // ── Renderer ───────────────────────────────────────────────
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  // ── Camera ─────────────────────────────────────────────────
+  camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 300);
+  camera.position.set(0, 12, CFG.START.z - 14);
+  camera.lookAt(0, 0, CFG.START.z);
+
+  // ── Lighting ───────────────────────────────────────────────
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+
+  const sun = new THREE.DirectionalLight(0xfff3cc, 1.4);
+  sun.position.set(40, 70, 20);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, {
+    near: 1, far: 230, left: -75, right: 75, top: 75, bottom: -75
+  });
+  scene.add(sun);
+
+  // ── Physics world ──────────────────────────────────────────
+  world = new CANNON.World();
+  world.gravity.set(0, CFG.GRAVITY, 0);
+  world.broadphase = new CANNON.NaiveBroadphase();
+  world.solver.iterations = 12;
+  world.defaultContactMaterial.friction    = CFG.FRICTION;
+  world.defaultContactMaterial.restitution = CFG.RESTITUTION;
+
+  clock = new THREE.Clock();
+
+  buildStage();
+  bindEvents();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  STAGE
+// ════════════════════════════════════════════════════════════════
+function buildStage() {
+
+  // ── Grassland floor ────────────────────────────────────────
+  const floorMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(130, 130),
+    new THREE.MeshLambertMaterial({ color: 0x4a7c3f })
+  );
+  floorMesh.rotation.x = -Math.PI / 2;
+  floorMesh.receiveShadow = true;
+  scene.add(floorMesh);
+
+  // Physics: infinite plane (normal +Y after rotation)
+  const floorBody = new CANNON.Body({ mass: 0 });
+  floorBody.addShape(new CANNON.Plane());
+  floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+  world.addBody(floorBody);
+
+  // Faint darker strip hints at the path
+  const pathMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(8, 130),
+    new THREE.MeshLambertMaterial({ color: 0x3d6e34, transparent: true, opacity: 0.3 })
+  );
+  pathMesh.rotation.x = -Math.PI / 2;
+  pathMesh.position.y = 0.01;
+  scene.add(pathMesh);
+
+  // ── Invisible boundary walls ────────────────────────────────
+  [
+    { p: [0,   6, -56], he: [55, 6, 1] },
+    { p: [0,   6,  56], he: [55, 6, 1] },
+    { p: [-56, 6,   0], he: [1,  6, 55] },
+    { p: [ 56, 6,   0], he: [1,  6, 55] },
+  ].forEach(({ p, he }) => {
+    const b = new CANNON.Body({ mass: 0 });
+    b.addShape(new CANNON.Box(new CANNON.Vec3(...he)));
+    b.position.set(...p);
+    world.addBody(b);
+  });
+
+  // ── Rock obstacles (8 pcs) ─────────────────────────────────
+  spawnRocks(8);
+
+  // ── River ──────────────────────────────────────────────────
+  const R = CFG.RIVER;
+  const rw = R.xMax - R.xMin;          // 52
+  const rd = R.zMax - R.zMin;          // 12
+  const rcx = (R.xMin + R.xMax) / 2;  // 0
+  const rcz = (R.zMin + R.zMax) / 2;  // 11
+
+  const riverMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(rw, rd),
+    new THREE.MeshLambertMaterial({ color: 0x1a6fb5, transparent: true, opacity: 0.80 })
+  );
+  riverMesh.rotation.x = -Math.PI / 2;
+  riverMesh.position.set(rcx, 0.06, rcz);
+  scene.add(riverMesh);
+
+  // Shimmer overlay
+  const shimmer = new THREE.Mesh(
+    new THREE.PlaneGeometry(rw, rd),
+    new THREE.MeshBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.18 })
+  );
+  shimmer.rotation.x = -Math.PI / 2;
+  shimmer.position.set(rcx, 0.09, rcz);
+  scene.add(shimmer);
+
+  // ── Goal – yellow ring ─────────────────────────────────────
+  ringMesh = new THREE.Mesh(
+    new THREE.TorusGeometry(3, 0.32, 16, 64),
+    new THREE.MeshLambertMaterial({ color: 0xffd700, emissive: 0x886600 })
+  );
+  ringMesh.position.set(CFG.GOAL.x, 3.2, CFG.GOAL.z);
+  scene.add(ringMesh);
+
+  // Goal ground disc
+  const goalDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(CFG.GOAL.radius, 64),
+    new THREE.MeshLambertMaterial({ color: 0xffd700, transparent: true, opacity: 0.28 })
+  );
+  goalDisc.rotation.x = -Math.PI / 2;
+  goalDisc.position.set(CFG.GOAL.x, 0.05, CFG.GOAL.z);
+  scene.add(goalDisc);
+
+  buildGoalParticles();
+
+  // ── Marimo ─────────────────────────────────────────────────
+  marimoMesh = createMarimo();
+  scene.add(marimoMesh);
+
+  marimoBody = new CANNON.Body({ mass: 1.2 });
+  marimoBody.addShape(new CANNON.Sphere(1));
+  marimoBody.linearDamping  = 0.35;
+  marimoBody.angularDamping = 0.35;
+  world.addBody(marimoBody);
+
+  resetMarimo();
+}
+
+// ─── Rock placement helper ────────────────────────────────────
+function spawnRocks(count) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0x7a7a7a });
+  const R = CFG.RIVER;
+  let placed = 0, tries = 0;
+
+  while (placed < count && ++tries < 500) {
+    const x = (Math.random() - 0.5) * 95;
+    const z = (Math.random() - 0.5) * 95;
+    const w = 2 + Math.random() * 4;
+    const h = 1.5 + Math.random() * 3.5;
+    const d = 2 + Math.random() * 4;
+
+    // Exclusions
+    if (dist2D(x, z, CFG.START.x, CFG.START.z) < 10)  continue;
+    if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 10)  continue;
+    // Keep the side corridors (x outside river xMin/xMax) clear
+    if (z > R.zMin - 4 && z < R.zMax + 4 && Math.abs(x) > R.xMax - 2) continue;
+    // Keep inside river zone rock-free too
+    if (x > R.xMin && x < R.xMax && z > R.zMin && z < R.zMax) continue;
+
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.set(x, h / 2, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    const body = new CANNON.Body({ mass: 0 });
+    body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
+    body.position.set(x, h / 2, z);
+    world.addBody(body);
+
+    placed++;
+  }
+}
+
+// ─── Goal particle ring ───────────────────────────────────────
+function buildGoalParticles() {
+  const N = 320;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 2.2 + Math.random() * 2.2;
+    pos[i * 3]     = Math.cos(a) * r;
+    pos[i * 3 + 1] = Math.random() * 5.5;
+    pos[i * 3 + 2] = Math.sin(a) * r;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  particleMat = new THREE.PointsMaterial({
+    color: 0xffdd00, size: 0.18, transparent: true, opacity: 0.9
+  });
+  goalParticles = new THREE.Points(geo, particleMat);
+  goalParticles.position.set(CFG.GOAL.x, 0, CFG.GOAL.z);
+  scene.add(goalParticles);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  === MARIMO MESH ===
+// ════════════════════════════════════════════════════════════════
+function createMarimo() {
+  const geo = new THREE.SphereGeometry(1, 32, 32);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x2d5a1b });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+// === MARIMO MESH ===
+
+// ════════════════════════════════════════════════════════════════
+//  GAME LOOP
+// ════════════════════════════════════════════════════════════════
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (gameState === 'playing') {
+
+    // ── Physics step ─────────────────────────────────────────
+    world.step(1 / 60, dt, 3);
+
+    // ── Tilt → force (DeviceOrientation + keyboard fallback) ─
+    let beta  = deviceBeta;
+    let gamma = deviceGamma;
+    if (keys['ArrowUp']    || keys['KeyW']) beta  -= 28;
+    if (keys['ArrowDown']  || keys['KeyS']) beta  += 28;
+    if (keys['ArrowLeft']  || keys['KeyA']) gamma -= 28;
+    if (keys['ArrowRight'] || keys['KeyD']) gamma += 28;
+
+    // gamma → X force,  beta → Z force (-beta so tilting forward = +Z)
+    const fx = Math.sin(gamma * Math.PI / 180) * CFG.TILT_FORCE;
+    const fz = -Math.sin(beta  * Math.PI / 180) * CFG.TILT_FORCE;
+    marimoBody.applyForce(new CANNON.Vec3(fx, 0, fz), marimoBody.position);
+
+    // ── Sync mesh ↔ body ──────────────────────────────────────
+    marimoMesh.position.copy(marimoBody.position);
+    marimoMesh.quaternion.copy(marimoBody.quaternion);
+
+    // ── Smooth third-person camera ────────────────────────────
+    const tp = camera.position;
+    const tx = marimoBody.position.x * 0.55;
+    const ty = marimoBody.position.y + 9;
+    const tz = marimoBody.position.z - 13;
+    tp.x += (tx - tp.x) * 0.07;
+    tp.y += (ty - tp.y) * 0.07;
+    tp.z += (tz - tp.z) * 0.07;
+    camera.lookAt(
+      marimoBody.position.x,
+      marimoBody.position.y + 1,
+      marimoBody.position.z
+    );
+
+    // ── Timer ─────────────────────────────────────────────────
+    timeLeft -= dt;
+    updateHUD();
+
+    // ── End conditions ────────────────────────────────────────
+    const p = marimoBody.position;
+    if (timeLeft  <= 0)    { endGame('timeout'); return; }
+    if (p.y       < CFG.FALL_Y) { endGame('fall');    return; }
+    if (inRiver(p))             { endGame('river');   return; }
+    if (atGoal(p))              { endGame('clear');   return; }
+
+    // ── Goal FX animation ─────────────────────────────────────
+    ringMesh.rotation.y     += dt * 1.2;
+    goalParticles.rotation.y += dt * 0.9;
+    particleMat.opacity = 0.55 + 0.45 * Math.sin(Date.now() * 0.003);
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  CONDITION CHECKS
+// ════════════════════════════════════════════════════════════════
+function inRiver(p) {
+  const R = CFG.RIVER;
+  return p.x > R.xMin && p.x < R.xMax &&
+         p.z > R.zMin && p.z < R.zMax &&
+         p.y < R.yMax;
+}
+
+function atGoal(p) {
+  return dist2D(p.x, p.z, CFG.GOAL.x, CFG.GOAL.z) < CFG.GOAL.radius && p.y < 3.5;
+}
+
+function dist2D(x1, z1, x2, z2) {
+  return Math.sqrt((x1 - x2) ** 2 + (z1 - z2) ** 2);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  HUD
+// ════════════════════════════════════════════════════════════════
+function updateHUD() {
+  const secs = Math.max(0, Math.ceil(timeLeft));
+  const el = document.getElementById('timer');
+  el.textContent = secs;
+  el.className = timeLeft <= 10 ? 'danger' : '';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  GAME STATE
+// ════════════════════════════════════════════════════════════════
+function resetMarimo() {
+  const s = CFG.START;
+  marimoBody.position.set(s.x, s.y, s.z);
+  marimoBody.velocity.set(0, 0, 0);
+  marimoBody.angularVelocity.set(0, 0, 0);
+  marimoBody.force.set(0, 0, 0);
+  marimoBody.torque.set(0, 0, 0);
+  marimoMesh.position.set(s.x, s.y, s.z);
+  marimoMesh.quaternion.set(0, 0, 0, 1);
+}
+
+function startGame() {
+  gameState = 'playing';
+  timeLeft  = CFG.GAME_TIME;
+  updateHUD();
+  document.getElementById('hud').style.display           = 'block';
+  document.getElementById('result-screen').style.display = 'none';
+  resetMarimo();
+}
+
+function endGame(reason) {
+  if (gameState !== 'playing') return;
+  gameState = 'over';
+  document.getElementById('hud').style.display = 'none';
+
+  const title = document.getElementById('result-title');
+  const msg   = document.getElementById('result-message');
+
+  const RESULTS = {
+    clear  : { t: 'ゴール！',          c: '#ffd700',
+               m: () => `残り ${Math.ceil(timeLeft)} 秒でクリア！すごい！` },
+    fall   : { t: '落下…',             c: '#ff6b6b',
+               m: () => 'マリモが落ちてしまいました' },
+    river  : { t: 'ドボン！',          c: '#55aaff',
+               m: () => '川に流されてしまいました！' },
+    timeout: { t: 'タイムオーバー！',  c: '#ff9944',
+               m: () => '時間切れです。もう一度挑戦！' },
+  };
+  const r = RESULTS[reason];
+  title.textContent = r.t;
+  title.style.color = r.c;
+  msg.textContent   = r.m();
+
+  document.getElementById('result-screen').style.display = 'flex';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  EVENTS
+// ════════════════════════════════════════════════════════════════
+function bindEvents() {
+  window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  window.addEventListener('deviceorientation', e => {
+    if (e.beta  != null) deviceBeta  = e.beta;
+    if (e.gamma != null) deviceGamma = e.gamma;
+  }, true);
+
+  window.addEventListener('keydown', e => { keys[e.code] = true; });
+  window.addEventListener('keyup',   e => { delete keys[e.code]; });
+
+  document.getElementById('start-btn').addEventListener('click', onStartClick);
+  document.getElementById('retry-btn').addEventListener('click', () => startGame());
+}
+
+async function onStartClick() {
+  // iOS 13+ requires explicit permission for DeviceOrientation
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const res = await DeviceOrientationEvent.requestPermission();
+      if (res !== 'granted') {
+        alert('センサーの許可が必要です。設定から許可してください。');
+        return;
+      }
+    } catch (err) {
+      console.warn('DeviceOrientation permission error:', err);
+    }
+  }
+  document.getElementById('permission-screen').style.display = 'none';
+  startGame();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  BOOTSTRAP
+// ════════════════════════════════════════════════════════════════
+init();
+animate();
+</script>
+</body>
+</html>
