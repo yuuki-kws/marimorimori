@@ -628,10 +628,9 @@ function buildFlowers() {
     const group = new THREE.Group();
 
     // Stem
-    group.add(Object.assign(
-      new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.30, 4), stemMat),
-      { position: new THREE.Vector3(0, 0.15, 0) }
-    ));
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 0.30, 4), stemMat);
+    stem.position.y = 0.15;
+    group.add(stem);
 
     // Flat petal disc
     const petals = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.022, 6), petalMat);
