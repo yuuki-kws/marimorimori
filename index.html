@@ -243,7 +243,7 @@ function init() {
   // ── Physics world ──────────────────────────────────────────
   world = new CANNON.World();
   world.gravity.set(0, CFG.GRAVITY, 0);
-  world.broadphase = new CANNON.SAPBroadphase(world);
+  world.broadphase = new CANNON.NaiveBroadphase();
   world.solver.iterations = 12;
   world.defaultContactMaterial.friction    = CFG.FRICTION;
   world.defaultContactMaterial.restitution = CFG.RESTITUTION;
@@ -498,62 +498,92 @@ function buildTrees() {
     if (CFG.PITS.some(P =>
       Math.sqrt((bx - P.x) ** 2 + (bz - P.z) ** 2) < P.r + 3)) continue;
 
-    const gy       = terrainH(bx, bz);
-    const isCedar  = Math.random() < 0.65;
-    const th       = isCedar ? (9 + Math.random() * 10) : (5 + Math.random() * 6);
-    const topR     = isCedar ? (0.28 + Math.random() * 0.14) : (0.40 + Math.random() * 0.18);
-    const botR     = isCedar ? (0.52 + Math.random() * 0.24) : (0.78 + Math.random() * 0.30);
-    const coneR    = isCedar ? (1.2 + Math.random() * 1.1) : (2.2 + Math.random() * 2.0);
-    const numLayers = isCedar ? (4 + Math.floor(Math.random() * 3)) : (3 + Math.floor(Math.random() * 2));
+    const gy      = terrainH(bx, bz);
+    const isCedar = Math.random() < 0.65;
+    const th      = isCedar ? (9 + Math.random() * 10) : (5 + Math.random() * 6);
+    const topR    = isCedar ? (0.28 + Math.random() * 0.14) : (0.40 + Math.random() * 0.18);
+    const botR    = isCedar ? (0.52 + Math.random() * 0.24) : (0.78 + Math.random() * 0.30);
+    const coneR   = isCedar ? (1.2 + Math.random() * 1.1) : (2.2 + Math.random() * 2.0);
     const trunkMat = trunkMats[Math.floor(Math.random() * trunkMats.length)];
     const leafMat  = leafMats [Math.floor(Math.random() * leafMats.length)];
 
-    // Visual trunk: only the bare lower portion – ends before the canopy starts
-    const trunkFrac = isCedar ? 0.36 : 0.42;
+    // Visual trunk: bare lower section only (canopy hides the rest)
+    const trunkFrac = isCedar ? 0.33 : 0.40;
     const trunkVisH = th * trunkFrac;
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(topR * 0.6, botR, trunkVisH, 7),
+      new THREE.CylinderGeometry(topR * 0.55, botR, trunkVisH, 7),
       trunkMat
     );
     trunk.position.set(bx, gy + trunkVisH / 2, bz);
     trunk.castShadow = true;
     scene.add(trunk);
 
-    // Physics body: full height so marimo can't clip through the invisible upper trunk
+    // Physics: CANNON.Box – sphere-box is the most reliable narrowphase in Cannon.js 0.6.2
+    // Full trunk height so marimo cannot clip through even the leafy upper section
     if (Math.abs(bx) < 18) {
+      const hr = botR * 0.72;  // half-width of box (slightly inside visual trunk)
       const tBody = new CANNON.Body({ mass: 0 });
-      tBody.addShape(new CANNON.Cylinder(topR * 0.9, botR * 0.9, th, 7));
+      tBody.addShape(new CANNON.Box(new CANNON.Vec3(hr, th / 2, hr)));
       tBody.position.set(bx, gy + th / 2, bz);
       world.addBody(tBody);
     }
 
-    // Canopy: evenly distributed layers from just below trunk top to near apex
-    const canopyStart = th * (trunkFrac - 0.05);  // slight overlap with trunk top
-    const canopyEnd   = th * 0.88;
-    const layerGap    = numLayers > 1 ? (canopyEnd - canopyStart) / (numLayers - 1) : 0;
-    for (let layer = 0; layer < numLayers; layer++) {
-      const r = Math.max(0.45, coneR * (1 - layer * (isCedar ? 0.16 : 0.22)));
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(r, isCedar ? 2.8 : 3.6, 8),
-        leafMat
-      );
-      cone.rotation.y = Math.random() * Math.PI * 2;
-      cone.position.set(bx, gy + canopyStart + layer * layerGap, bz);
-      cone.castShadow = true;
-      scene.add(cone);
-    }
+    if (isCedar) {
+      // Cedar: radial whorls of leaf puffs, tapering to a spike at the top
+      const numWhorls = 5 + Math.floor(Math.random() * 4);
+      const wBase = gy + th * (trunkFrac - 0.04);
+      const wTop  = gy + th * 0.93;
+      for (let w = 0; w < numWhorls; w++) {
+        const t    = w / Math.max(1, numWhorls - 1);
+        const wY   = wBase + t * (wTop - wBase);
+        const wR   = coneR * (1.0 - t * 0.78);
+        const nPuf = 2 + Math.floor(Math.random() * 3);
+        const aOff = Math.random() * Math.PI * 2;
+        for (let p = 0; p < nPuf; p++) {
+          const a  = aOff + (p / nPuf) * Math.PI * 2;
+          const pr = Math.max(0.18, coneR * (0.20 + Math.random() * 0.16) * (1 - t * 0.55));
+          const puff = new THREE.Mesh(new THREE.SphereGeometry(pr, 6, 5), leafMat);
+          puff.scale.set(1.15 + Math.random() * 0.30, 0.62 + Math.random() * 0.28, 1.15 + Math.random() * 0.30);
+          puff.position.set(
+            bx + Math.cos(a) * wR * (0.42 + Math.random() * 0.44),
+            wY + (Math.random() - 0.5) * 0.75,
+            bz + Math.sin(a) * wR * (0.42 + Math.random() * 0.44)
+          );
+          puff.castShadow = true;
+          scene.add(puff);
+        }
+      }
+      // Needle-like apex
+      const apex = new THREE.Mesh(new THREE.SphereGeometry(coneR * 0.13, 5, 4), leafMat);
+      apex.position.set(bx, gy + th * 0.97, bz);
+      scene.add(apex);
 
-    // Apex cap: clearly leafy treetop (small cone for cedar, sphere for broadleaf)
-    const capR  = isCedar ? coneR * 0.28 : coneR * 0.48;
-    const capY  = gy + th * (isCedar ? 0.93 : 0.90);
-    const capGeo = isCedar
-      ? new THREE.ConeGeometry(capR, capR * 3.0, 6)
-      : new THREE.SphereGeometry(capR, 8, 6);
-    const cap = new THREE.Mesh(capGeo, leafMat);
-    cap.rotation.y = Math.random() * Math.PI * 2;
-    cap.position.set(bx, capY, bz);
-    cap.castShadow = true;
-    scene.add(cap);
+    } else {
+      // Broadleaf: cloud-like rounded crown of overlapping irregular puffs
+      const crownY = gy + th * 0.65;
+      const nPuffs = 6 + Math.floor(Math.random() * 5);
+      for (let p = 0; p < nPuffs; p++) {
+        const a  = (p / nPuffs) * Math.PI * 2 + Math.random() * 0.9;
+        const d  = coneR * (0.15 + Math.random() * 0.60);
+        const py = crownY + (Math.random() - 0.5) * coneR * 0.90;
+        const pr = Math.max(0.35, coneR * (0.35 + Math.random() * 0.48));
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(pr, 7, 5), leafMat);
+        puff.scale.set(
+          0.72 + Math.random() * 0.58,
+          0.52 + Math.random() * 0.40,
+          0.72 + Math.random() * 0.58
+        );
+        puff.position.set(bx + Math.cos(a) * d, py, bz + Math.sin(a) * d);
+        puff.castShadow = true;
+        scene.add(puff);
+      }
+      // Slightly raised central puff to dome the crown
+      const top = new THREE.Mesh(new THREE.SphereGeometry(coneR * 0.44, 7, 5), leafMat);
+      top.scale.set(0.95, 0.68, 0.95);
+      top.position.set(bx, crownY + coneR * 0.46, bz);
+      top.castShadow = true;
+      scene.add(top);
+    }
 
     placed++;
   }
