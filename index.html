@@ -546,7 +546,7 @@ function buildTrees() {
 
     } else {
       // Broadleaf: 2-3 irregular blob spheres – organic but cheap
-      const crownY = gy + th * 0.66;
+      const crownY = gy + trunkVisH;
       const nBlobs = 2;
       for (let i = 0; i < nBlobs; i++) {
         const a  = (i / nBlobs) * Math.PI * 2 + Math.random() * 1.8;
