@@ -110,14 +110,14 @@
   <h1>マリモ転がり大冒険</h1>
   <p>
     画面右下のスティックでマリモを転がそう！<br>
-    川を避けて 60 秒以内にゴールを目指せ！<br><br>
+    川を避けて 90 秒以内にゴールを目指せ！<br><br>
     <small>※ PC では矢印キー / WASD でも操作できます</small>
   </p>
   <button class="btn" id="start-btn">ゲームスタート！</button>
 </div>
 
 <!-- ── HUD ───────────────────────────────────────────────── -->
-<div id="hud"><div id="timer">60</div></div>
+<div id="hud"><div id="timer">90</div></div>
 
 <!-- ── Result Screen ─────────────────────────────────────── -->
 <div id="result-screen">
@@ -144,15 +144,18 @@
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 const CFG = {
-  START       : { x: 0, y: 1.5, z: -40 },
-  GOAL        : { x: 0, z: 40, radius: 3.5 },
-  // River zone (XZ bounding box, y threshold for contact)
-  RIVER       : { xMin: -26, xMax: 26, zMin: 5, zMax: 17, yMax: 2.8 },
+  START       : { x: 0, y: 1.5, z: -100 },
+  GOAL        : { x: 0, z:  100, radius: 3.5 },
+  // River zones – 2 sections (XZ bbox, y contact threshold)
+  RIVERS      : [
+    { xMin: -28, xMax: 28, zMin: -28, zMax: -16, yMax: 2.8 }, // 前半の川
+    { xMin: -28, xMax: 28, zMin:  32, zMax:  44, yMax: 2.8 }, // 後半の川
+  ],
   TILT_FORCE  : 22,
   GRAVITY     : -24,
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
-  GAME_TIME   : 60,
+  GAME_TIME   : 90,
   FALL_Y      : -10,
 };
 
@@ -181,7 +184,7 @@ function init() {
   // ── Scene ──────────────────────────────────────────────────
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87CEEB);
-  scene.fog = new THREE.FogExp2(0x87CEEB, 0.009);
+  scene.fog = new THREE.FogExp2(0x87CEEB, 0.005);
 
   // ── Renderer ───────────────────────────────────────────────
   renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -192,9 +195,9 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   // ── Camera ─────────────────────────────────────────────────
-  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 300);
-  camera.position.set(CFG.START.x, CFG.START.y + 2, CFG.START.z - 9);
-  camera.lookAt(CFG.START.x, CFG.START.y, CFG.START.z + 5);
+  camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 500);
+  camera.position.set(CFG.START.x, CFG.START.y + 1, CFG.START.z - 4);
+  camera.lookAt(CFG.START.x, CFG.START.y, CFG.START.z + 6);
 
   // ── Lighting ───────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -204,7 +207,7 @@ function init() {
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, {
-    near: 1, far: 230, left: -75, right: 75, top: 75, bottom: -75
+    near: 1, far: 300, left: -80, right: 80, top: 80, bottom: -80
   });
   scene.add(sun);
 
@@ -230,7 +233,7 @@ function buildStage() {
 
   // ── Grassland floor ────────────────────────────────────────
   const floorMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(130, 130),
+    new THREE.PlaneGeometry(115, 230),
     new THREE.MeshLambertMaterial({ color: 0x4a7c3f })
   );
   floorMesh.rotation.x = -Math.PI / 2;
@@ -245,7 +248,7 @@ function buildStage() {
 
   // Faint darker strip hints at the path
   const pathMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(8, 130),
+    new THREE.PlaneGeometry(8, 230),
     new THREE.MeshLambertMaterial({ color: 0x3d6e34, transparent: true, opacity: 0.3 })
   );
   pathMesh.rotation.x = -Math.PI / 2;
@@ -254,10 +257,10 @@ function buildStage() {
 
   // ── Invisible boundary walls ────────────────────────────────
   [
-    { p: [0,   6, -56], he: [55, 6, 1] },
-    { p: [0,   6,  56], he: [55, 6, 1] },
-    { p: [-56, 6,   0], he: [1,  6, 55] },
-    { p: [ 56, 6,   0], he: [1,  6, 55] },
+    { p: [0,    6, -114], he: [57, 6,   1] },
+    { p: [0,    6,  114], he: [57, 6,   1] },
+    { p: [-57,  6,    0], he: [1,  6, 113] },
+    { p: [ 57,  6,    0], he: [1,  6, 113] },
   ].forEach(({ p, he }) => {
     const b = new CANNON.Body({ mass: 0 });
     b.addShape(new CANNON.Box(new CANNON.Vec3(...he)));
@@ -265,32 +268,30 @@ function buildStage() {
     world.addBody(b);
   });
 
-  // ── Rock obstacles (8 pcs) ─────────────────────────────────
-  spawnRocks(8);
+  // ── Rock obstacles (16 pcs) ────────────────────────────────
+  spawnRocks(16);
 
-  // ── River ──────────────────────────────────────────────────
-  const R = CFG.RIVER;
-  const rw = R.xMax - R.xMin;          // 52
-  const rd = R.zMax - R.zMin;          // 12
-  const rcx = (R.xMin + R.xMax) / 2;  // 0
-  const rcz = (R.zMin + R.zMax) / 2;  // 11
+  // ── Rivers (2 sections) ─────────────────────────────────────
+  const riverBodyMat  = new THREE.MeshLambertMaterial({ color: 0x1a6fb5, transparent: true, opacity: 0.82 });
+  const riverGlintMat = new THREE.MeshBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.18 });
+  CFG.RIVERS.forEach(R => {
+    const rw  = R.xMax - R.xMin;
+    const rd  = R.zMax - R.zMin;
+    const rcx = (R.xMin + R.xMax) / 2;
+    const rcz = (R.zMin + R.zMax) / 2;
+    const geo = new THREE.PlaneGeometry(rw, rd);
+    const body = new THREE.Mesh(geo, riverBodyMat);
+    body.rotation.x = -Math.PI / 2;
+    body.position.set(rcx, 0.06, rcz);
+    scene.add(body);
+    const glint = new THREE.Mesh(geo, riverGlintMat);
+    glint.rotation.x = -Math.PI / 2;
+    glint.position.set(rcx, 0.09, rcz);
+    scene.add(glint);
+  });
 
-  const riverMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(rw, rd),
-    new THREE.MeshLambertMaterial({ color: 0x1a6fb5, transparent: true, opacity: 0.80 })
-  );
-  riverMesh.rotation.x = -Math.PI / 2;
-  riverMesh.position.set(rcx, 0.06, rcz);
-  scene.add(riverMesh);
-
-  // Shimmer overlay
-  const shimmer = new THREE.Mesh(
-    new THREE.PlaneGeometry(rw, rd),
-    new THREE.MeshBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.18 })
-  );
-  shimmer.rotation.x = -Math.PI / 2;
-  shimmer.position.set(rcx, 0.09, rcz);
-  scene.add(shimmer);
+  // ── Decorative trees (visual depth markers) ─────────────────
+  buildTrees();
 
   // ── Goal – yellow ring ─────────────────────────────────────
   ringMesh = new THREE.Mesh(
@@ -326,26 +327,36 @@ function buildStage() {
 
 // ─── Rock placement helper ────────────────────────────────────
 function spawnRocks(count) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0x7a7a7a });
-  const R = CFG.RIVER;
+  const mats = [
+    new THREE.MeshLambertMaterial({ color: 0x7a7a7a }),
+    new THREE.MeshLambertMaterial({ color: 0x8a8070 }),
+    new THREE.MeshLambertMaterial({ color: 0x6a6a72 }),
+  ];
   let placed = 0, tries = 0;
 
-  while (placed < count && ++tries < 500) {
-    const x = (Math.random() - 0.5) * 95;
-    const z = (Math.random() - 0.5) * 95;
-    const w = 2 + Math.random() * 4;
-    const h = 1.5 + Math.random() * 3.5;
-    const d = 2 + Math.random() * 4;
+  while (placed < count && ++tries < 800) {
+    const x = (Math.random() - 0.5) * 88;
+    const z = (Math.random() - 0.5) * 190;
+    const w = 1.5 + Math.random() * 5.5;
+    const h = 1.5 + Math.random() * 5.5;
+    const d = 1.5 + Math.random() * 5.5;
 
-    // Exclusions
-    if (dist2D(x, z, CFG.START.x, CFG.START.z) < 10)  continue;
-    if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 10)  continue;
-    // Keep the side corridors (x outside river xMin/xMax) clear
-    if (z > R.zMin - 4 && z < R.zMax + 4 && Math.abs(x) > R.xMax - 2) continue;
-    // Keep inside river zone rock-free too
-    if (x > R.xMin && x < R.xMax && z > R.zMin && z < R.zMax) continue;
+    if (dist2D(x, z, CFG.START.x, CFG.START.z) < 12) continue;
+    if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 12) continue;
+    // Keep river interiors and side corridors clear
+    const inRiverZone = CFG.RIVERS.some(R =>
+      x > R.xMin && x < R.xMax && z > R.zMin && z < R.zMax
+    );
+    if (inRiverZone) continue;
+    const blocksCorridor = CFG.RIVERS.some(R =>
+      z > R.zMin - 5 && z < R.zMax + 5 && Math.abs(x) > R.xMax - 2
+    );
+    if (blocksCorridor) continue;
 
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      mats[Math.floor(Math.random() * mats.length)]
+    );
     mesh.position.set(x, h / 2, z);
     mesh.castShadow = mesh.receiveShadow = true;
     scene.add(mesh);
@@ -356,6 +367,34 @@ function spawnRocks(count) {
     world.addBody(body);
 
     placed++;
+  }
+}
+
+// ─── Decorative trees (visual depth / atmosphere) ─────────────
+function buildTrees() {
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4423 });
+  const leafA    = new THREE.MeshLambertMaterial({ color: 0x1a5c20 });
+  const leafB    = new THREE.MeshLambertMaterial({ color: 0x267332 });
+
+  for (let z = -100; z <= 108; z += 15) {
+    [-1, 1].forEach(side => {
+      const bx = side * (44 + Math.random() * 9);
+      const bz = z + (Math.random() - 0.5) * 6;
+      const th = 4 + Math.random() * 5;
+
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.42, th, 6), trunkMat);
+      trunk.position.set(bx, th / 2, bz);
+      scene.add(trunk);
+
+      for (let layer = 0; layer < 2; layer++) {
+        const cone = new THREE.Mesh(
+          new THREE.ConeGeometry(2.8 - layer * 0.6, 3.2, 6),
+          layer === 0 ? leafA : leafB
+        );
+        cone.position.set(bx, th * 0.6 + layer * 1.9, bz);
+        scene.add(cone);
+      }
+    });
   }
 }
 
@@ -416,19 +455,19 @@ function animate() {
       if (bLen > 0) { camBehindX /= bLen; camBehindZ /= bLen; }
     }
 
-    const CAM_BACK = 9, CAM_H = 2.0;
+    const CAM_BACK = 3.5, CAM_H = 0.9;
     const tp = camera.position;
     const tx = marimoBody.position.x + camBehindX * CAM_BACK;
     const ty = marimoBody.position.y + CAM_H;
     const tz = marimoBody.position.z + camBehindZ * CAM_BACK;
-    tp.x += (tx - tp.x) * 0.07;
-    tp.y += (ty - tp.y) * 0.08;
-    tp.z += (tz - tp.z) * 0.07;
-    // Look past marimo in the movement direction
+    tp.x += (tx - tp.x) * 0.09;
+    tp.y += (ty - tp.y) * 0.11;
+    tp.z += (tz - tp.z) * 0.09;
+    // Look well ahead to show stage depth
     camera.lookAt(
-      marimoBody.position.x - camBehindX * 5,
-      marimoBody.position.y + 0.3,
-      marimoBody.position.z - camBehindZ * 5
+      marimoBody.position.x - camBehindX * 9,
+      marimoBody.position.y + 0.5,
+      marimoBody.position.z - camBehindZ * 9
     );
 
     // ── Joystick + keyboard → camera-relative force ───────────
@@ -478,10 +517,11 @@ function animate() {
 //  CONDITION CHECKS
 // ════════════════════════════════════════════════════════════════
 function inRiver(p) {
-  const R = CFG.RIVER;
-  return p.x > R.xMin && p.x < R.xMax &&
-         p.z > R.zMin && p.z < R.zMax &&
-         p.y < R.yMax;
+  return CFG.RIVERS.some(R =>
+    p.x > R.xMin && p.x < R.xMax &&
+    p.z > R.zMin && p.z < R.zMax &&
+    p.y < R.yMax
+  );
 }
 
 function atGoal(p) {
@@ -524,7 +564,7 @@ function startGame() {
   document.getElementById('result-screen').style.display = 'none';
   document.getElementById('joystick-wrap').style.display = 'block';
   camBehindX = 0; camBehindZ = -1;
-  camera.position.set(CFG.START.x, CFG.START.y + 2, CFG.START.z - 9);
+  camera.position.set(CFG.START.x, CFG.START.y + 1, CFG.START.z - 4);
   resetMarimo();
 }
 
