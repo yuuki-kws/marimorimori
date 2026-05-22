@@ -529,76 +529,47 @@ function buildTrees() {
     }
 
     if (isCedar) {
-      // Cedar: each whorl has N branches; each branch is lined with puffs from trunk to tip
-      const numWhorls = 4 + Math.floor(Math.random() * 4);
-      const wBase = gy + th * (trunkFrac - 0.04);
-      const wTop  = gy + th * 0.93;
-      for (let w = 0; w < numWhorls; w++) {
-        const t    = w / Math.max(1, numWhorls - 1);
-        const wY   = wBase + t * (wTop - wBase);
-        const wR   = coneR * (1.0 - t * 0.78);
-        const nB   = 2 + Math.floor(Math.random() * 3);  // 2-4 branches per whorl
-        const aOff = Math.random() * Math.PI * 2;
-
-        for (let b = 0; b < nB; b++) {
-          const ba  = aOff + (b / nB) * Math.PI * 2;
-          const bLen = wR * (0.70 + Math.random() * 0.38);
-
-          // Leaf puffs from trunk (frac≈0) to branch tip (frac≈1)
-          for (let p = 0; p < 3; p++) {
-            const frac = (p + 0.25) / 3;
-            const dist = bLen * frac;
-            const pr   = Math.max(0.13, coneR * (0.23 - frac * 0.09) * (1 - t * 0.55));
-            const puff = new THREE.Mesh(new THREE.SphereGeometry(pr, 5, 4), leafMat);
-            puff.scale.set(1.05 + Math.random()*0.3, 0.62 + Math.random()*0.26, 1.05 + Math.random()*0.3);
-            puff.position.set(
-              bx + Math.cos(ba) * dist,
-              wY - dist * 0.14 + (Math.random() - 0.5) * 0.45,  // slight droop
-              bz + Math.sin(ba) * dist
-            );
-            puff.castShadow = true;
-            scene.add(puff);
-          }
-        }
+      // Cedar: stacked irregular cones – 4-6 meshes total, very low poly
+      const numCones = 4 + Math.floor(Math.random() * 3);
+      const capBase  = gy + th * (trunkFrac - 0.04);
+      const capTop   = gy + th * 0.94;
+      const step     = (capTop - capBase) / numCones;
+      for (let i = 0; i < numCones; i++) {
+        const t    = i / Math.max(1, numCones - 1);
+        const r    = coneR * (1.0 - t * 0.74) * (0.80 + Math.random() * 0.34);
+        const cone = new THREE.Mesh(
+          new THREE.ConeGeometry(r, step * 1.55, 6),
+          leafMat
+        );
+        cone.scale.set(0.80 + Math.random()*0.34, 1.0, 0.80 + Math.random()*0.34);
+        cone.rotation.y = Math.random() * Math.PI * 2;
+        cone.position.set(bx, capBase + t * (capTop - capBase), bz);
+        cone.castShadow = (i === 0);
+        scene.add(cone);
       }
-      // Apex needle
-      const apex = new THREE.Mesh(new THREE.SphereGeometry(coneR * 0.12, 5, 4), leafMat);
-      apex.position.set(bx, gy + th * 0.97, bz);
-      scene.add(apex);
 
     } else {
-      // Broadleaf: branches fan outward-and-upward from the crown base, puffs all along each branch
-      const crownBaseY = gy + th * (trunkFrac - 0.04);
-      const nB   = 4 + Math.floor(Math.random() * 4);  // 4-7 main branches
-      const aOff = Math.random() * Math.PI * 2;
-
-      for (let b = 0; b < nB; b++) {
-        const ba   = aOff + (b / nB) * Math.PI * 2 + (Math.random() - 0.5) * 0.55;
-        const bLen = coneR * (0.68 + Math.random() * 0.55);
-        const elev = 0.22 + Math.random() * 0.55;  // upward slope of branch
-
-        // 3 puffs per branch: near trunk, mid, and tip
-        for (let p = 0; p < 3; p++) {
-          const frac = (p + 0.25) / 3;
-          const dist = bLen * frac;
-          const pr   = Math.max(0.28, coneR * (0.44 - frac * 0.14 + Math.random() * 0.16));
-          const puff = new THREE.Mesh(new THREE.SphereGeometry(pr, 6, 5), leafMat);
-          puff.scale.set(0.75 + Math.random()*0.5, 0.50 + Math.random()*0.36, 0.75 + Math.random()*0.5);
-          puff.position.set(
-            bx + Math.cos(ba) * dist,
-            crownBaseY + dist * elev + (Math.random() - 0.5) * 0.45,
-            bz + Math.sin(ba) * dist
-          );
-          puff.castShadow = true;
-          scene.add(puff);
-        }
+      // Broadleaf: 2-3 irregular blob spheres – organic but cheap
+      const crownY = gy + th * 0.66;
+      const nBlobs = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < nBlobs; i++) {
+        const a  = (i / nBlobs) * Math.PI * 2 + Math.random() * 1.8;
+        const d  = i === 0 ? 0 : coneR * (0.26 + Math.random() * 0.40);
+        const pr = Math.max(0.5, coneR * (0.72 - i * 0.18 + Math.random() * 0.22));
+        const blob = new THREE.Mesh(new THREE.SphereGeometry(pr, 6, 4), leafMat);
+        blob.scale.set(
+          0.86 + Math.random()*0.40,
+          0.56 + Math.random()*0.34,
+          0.86 + Math.random()*0.40
+        );
+        blob.position.set(
+          bx + Math.cos(a) * d,
+          crownY + (i === 0 ? 0 : (Math.random() - 0.5) * coneR * 0.50),
+          bz + Math.sin(a) * d
+        );
+        blob.castShadow = (i === 0);
+        scene.add(blob);
       }
-      // Crown-top puff
-      const top = new THREE.Mesh(new THREE.SphereGeometry(coneR * 0.44, 7, 5), leafMat);
-      top.scale.set(0.90, 0.64, 0.90);
-      top.position.set(bx, crownBaseY + coneR * 0.60, bz);
-      top.castShadow = true;
-      scene.add(top);
     }
 
     placed++;
