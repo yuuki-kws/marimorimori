@@ -144,7 +144,7 @@
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 const CFG = {
-  START       : { x: 0, y: 0.5, z: -100 },
+  START       : { x: 0, y: 1.0, z: -100 },
   GOAL        : { x: 0, z:  100, radius: 3.5 },
   // River zones – 2 sections (XZ bbox, y contact threshold)
   RIVERS      : [
@@ -156,7 +156,7 @@ const CFG = {
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
   GAME_TIME   : 90,
-  FALL_Y      : -10,
+  FALL_Y      : -20,
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -298,8 +298,15 @@ function buildStage() {
       hfData[xi].push(terrainH(wx, wz));
     }
   }
+  // minValue / maxValue must be provided so Cannon.js can compute a valid AABB;
+  // without them the Y range is NaN and NaiveBroadphase silently skips this body.
+  const hfMinV = -10, hfMaxV = 10;
   const hfBody = new CANNON.Body({ mass: 0 });
-  hfBody.addShape(new CANNON.Heightfield(hfData, { elementSize: T_ES }));
+  hfBody.addShape(new CANNON.Heightfield(hfData, {
+    elementSize: T_ES,
+    minValue: hfMinV,
+    maxValue: hfMaxV,
+  }));
   hfBody.position.set(-T_W / 2, 0, -T_L / 2);
   world.addBody(hfBody);
 
