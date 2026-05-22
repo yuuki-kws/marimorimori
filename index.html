@@ -144,12 +144,12 @@
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 const CFG = {
-  START       : { x: 0, y: 1.5, z: -100 },
+  START       : { x: 0, y: 0.5, z: -100 },
   GOAL        : { x: 0, z:  100, radius: 3.5 },
   // River zones – 2 sections (XZ bbox, y contact threshold)
   RIVERS      : [
-    { xMin: -28, xMax: 28, zMin: -28, zMax: -16, yMax: 2.8 }, // 前半の川
-    { xMin: -28, xMax: 28, zMin:  32, zMax:  44, yMax: 2.8 }, // 後半の川
+    { xMin: -28, xMax: 28, zMin: -28, zMax: -16, yMax: 0.7 }, // 前半の川
+    { xMin: -28, xMax: 28, zMin:  32, zMax:  44, yMax: 0.7 }, // 後半の川
   ],
   TILT_FORCE  : 22,
   GRAVITY     : -24,
@@ -196,8 +196,8 @@ function init() {
 
   // ── Camera ─────────────────────────────────────────────────
   camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 500);
-  camera.position.set(CFG.START.x, CFG.START.y + 1, CFG.START.z - 4);
-  camera.lookAt(CFG.START.x, CFG.START.y + 4.0, CFG.START.z + 9);
+  camera.position.set(CFG.START.x, CFG.START.y + 0.4, CFG.START.z - 4);
+  camera.lookAt(CFG.START.x, CFG.START.y + 3.5, CFG.START.z + 9);
 
   // ── Lighting ───────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -227,33 +227,81 @@ function init() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  TERRAIN HEIGHT FUNCTION  (world XZ → world Y)
+// ════════════════════════════════════════════════════════════════
+function terrainH(wx, wz) {
+  // Flatten near start & goal
+  const startFade = Math.min(1, Math.max(0, (wz - CFG.START.z - 8) / 15));
+  const goalFade  = Math.min(1, Math.max(0, (CFG.GOAL.z  - wz - 8) / 15));
+  // Flatten in / near each river zone
+  let rFade = 1;
+  for (const R of CFG.RIVERS) {
+    const m = 10;
+    if (wz >= R.zMin && wz <= R.zMax) { rFade = 0; break; }
+    if (wz > R.zMin - m && wz < R.zMax + m) {
+      const d = wz < R.zMin ? R.zMin - wz : wz - R.zMax;
+      rFade = Math.min(rFade, d / m);
+    }
+  }
+  const fade = Math.min(startFade, goalFade) * rFade;
+
+  // Multi-frequency hills (max combined ~5.8 units)
+  const h =
+    Math.sin(wx * 0.08  + wz * 0.05) * 2.5 +
+    Math.sin(wx * 0.14  - wz * 0.09) * 1.5 +
+    Math.cos(wx * 0.22  + wz * 0.17) * 0.8 +
+    Math.sin(wz * 0.055) * 3.0;
+
+  return h * fade;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  STAGE
 // ════════════════════════════════════════════════════════════════
 function buildStage() {
 
-  // ── Grassland floor ────────────────────────────────────────
-  const floorMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(115, 230),
+  // ── Bumpy grassland terrain ────────────────────────────────
+  const T_SX = 40, T_SZ = 80;           // segments
+  const T_W  = 115, T_L = 230;          // world size
+  const T_ES = T_W / T_SX;              // element size ≈ 2.875
+
+  // Three.js mesh with displaced vertices
+  const terrainGeo = new THREE.PlaneGeometry(T_W, T_L, T_SX, T_SZ);
+  const tPos = terrainGeo.attributes.position;
+  for (let i = 0; i <= T_SX; i++) {
+    for (let j = 0; j <= T_SZ; j++) {
+      const idx = j * (T_SX + 1) + i;
+      const wx  = -T_W / 2 + i * T_ES;
+      const wz  =  T_L / 2 - j * T_ES; // j=0→+115, j=T_SZ→-115
+      tPos.setZ(idx, terrainH(wx, wz)); // local Z → world Y after rotation
+    }
+  }
+  tPos.needsUpdate = true;
+  terrainGeo.computeVertexNormals();
+
+  const terrainMesh = new THREE.Mesh(
+    terrainGeo,
     new THREE.MeshLambertMaterial({ color: 0x4a7c3f })
   );
-  floorMesh.rotation.x = -Math.PI / 2;
-  floorMesh.receiveShadow = true;
-  scene.add(floorMesh);
+  terrainMesh.rotation.x = -Math.PI / 2;
+  terrainMesh.receiveShadow = true;
+  scene.add(terrainMesh);
 
-  // Physics: infinite plane (normal +Y after rotation)
-  const floorBody = new CANNON.Body({ mass: 0 });
-  floorBody.addShape(new CANNON.Plane());
-  floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-  world.addBody(floorBody);
-
-  // Faint darker strip hints at the path
-  const pathMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(8, 230),
-    new THREE.MeshLambertMaterial({ color: 0x3d6e34, transparent: true, opacity: 0.3 })
-  );
-  pathMesh.rotation.x = -Math.PI / 2;
-  pathMesh.position.y = 0.01;
-  scene.add(pathMesh);
+  // Cannon.js Heightfield physics
+  // hfData[xi][yi]: xi→world X,  yi=0→world Z=-115, yi=T_SZ→world Z=+115
+  const hfData = [];
+  for (let xi = 0; xi <= T_SX; xi++) {
+    hfData.push([]);
+    for (let yi = 0; yi <= T_SZ; yi++) {
+      const wx = -T_W / 2 + xi * T_ES;
+      const wz = -T_L / 2 + yi * T_ES;
+      hfData[xi].push(terrainH(wx, wz));
+    }
+  }
+  const hfBody = new CANNON.Body({ mass: 0 });
+  hfBody.addShape(new CANNON.Heightfield(hfData, { elementSize: T_ES }));
+  hfBody.position.set(-T_W / 2, 0, -T_L / 2);
+  world.addBody(hfBody);
 
   // ── Invisible boundary walls ────────────────────────────────
   [
@@ -316,8 +364,8 @@ function buildStage() {
   marimoMesh = createMarimo();
   scene.add(marimoMesh);
 
-  marimoBody = new CANNON.Body({ mass: 1.2 });
-  marimoBody.addShape(new CANNON.Sphere(1));
+  marimoBody = new CANNON.Body({ mass: 0.3 });
+  marimoBody.addShape(new CANNON.Sphere(0.3));
   marimoBody.linearDamping  = 0.35;
   marimoBody.angularDamping = 0.35;
   world.addBody(marimoBody);
@@ -353,17 +401,18 @@ function spawnRocks(count) {
     );
     if (blocksCorridor) continue;
 
+    const gy = terrainH(x, z);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
       mats[Math.floor(Math.random() * mats.length)]
     );
-    mesh.position.set(x, h / 2, z);
+    mesh.position.set(x, gy + h / 2, z);
     mesh.castShadow = mesh.receiveShadow = true;
     scene.add(mesh);
 
     const body = new CANNON.Body({ mass: 0 });
     body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
-    body.position.set(x, h / 2, z);
+    body.position.set(x, gy + h / 2, z);
     world.addBody(body);
 
     placed++;
@@ -382,8 +431,9 @@ function buildTrees() {
       const bz = z + (Math.random() - 0.5) * 6;
       const th = 4 + Math.random() * 5;
 
+      const gy = terrainH(bx, bz);
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.42, th, 6), trunkMat);
-      trunk.position.set(bx, th / 2, bz);
+      trunk.position.set(bx, gy + th / 2, bz);
       scene.add(trunk);
 
       for (let layer = 0; layer < 2; layer++) {
@@ -391,7 +441,7 @@ function buildTrees() {
           new THREE.ConeGeometry(2.8 - layer * 0.6, 3.2, 6),
           layer === 0 ? leafA : leafB
         );
-        cone.position.set(bx, th * 0.6 + layer * 1.9, bz);
+        cone.position.set(bx, gy + th * 0.6 + layer * 1.9, bz);
         scene.add(cone);
       }
     });
@@ -423,7 +473,7 @@ function buildGoalParticles() {
 //  === MARIMO MESH ===
 // ════════════════════════════════════════════════════════════════
 function createMarimo() {
-  const geo = new THREE.SphereGeometry(1, 32, 32);
+  const geo = new THREE.SphereGeometry(0.3, 32, 32);
   const mat = new THREE.MeshLambertMaterial({ color: 0x2d5a1b });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
@@ -455,7 +505,7 @@ function animate() {
       if (bLen > 0) { camBehindX /= bLen; camBehindZ /= bLen; }
     }
 
-    const CAM_BACK = 3.5, CAM_H = 0.9;
+    const CAM_BACK = 3.5, CAM_H = 0.4;
     const tp = camera.position;
     const tx = marimoBody.position.x + camBehindX * CAM_BACK;
     const ty = marimoBody.position.y + CAM_H;
@@ -466,7 +516,7 @@ function animate() {
     // Look ahead + upward: horizon at ~lower-third of screen (~14° above horizontal)
     camera.lookAt(
       marimoBody.position.x - camBehindX * 9,
-      marimoBody.position.y + 4.0,
+      marimoBody.position.y + 3.5,
       marimoBody.position.z - camBehindZ * 9
     );
 
@@ -525,7 +575,7 @@ function inRiver(p) {
 }
 
 function atGoal(p) {
-  return dist2D(p.x, p.z, CFG.GOAL.x, CFG.GOAL.z) < CFG.GOAL.radius && p.y < 3.5;
+  return dist2D(p.x, p.z, CFG.GOAL.x, CFG.GOAL.z) < CFG.GOAL.radius && p.y < 1.5;
 }
 
 function dist2D(x1, z1, x2, z2) {
@@ -564,7 +614,7 @@ function startGame() {
   document.getElementById('result-screen').style.display = 'none';
   document.getElementById('joystick-wrap').style.display = 'block';
   camBehindX = 0; camBehindZ = -1;
-  camera.position.set(CFG.START.x, CFG.START.y + 1, CFG.START.z - 4);
+  camera.position.set(CFG.START.x, CFG.START.y + 0.4, CFG.START.z - 4);
   resetMarimo();
 }
 
