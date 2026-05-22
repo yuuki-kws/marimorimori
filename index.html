@@ -170,6 +170,9 @@ const keys = {};
 const joy = { dx: 0, dy: 0, active: false, id: null, cx: 0, cy: 0 };
 const JOY_MAX_R = 39; // max knob displacement in px (base radius - knob radius)
 
+// Smoothed "behind-marimo" unit vector in XZ (camera sits camBehind * CAM_BACK from marimo)
+let camBehindX = 0, camBehindZ = -1;
+
 // ════════════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════════════
@@ -189,9 +192,9 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   // ── Camera ─────────────────────────────────────────────────
-  camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 300);
-  camera.position.set(0, 12, CFG.START.z - 14);
-  camera.lookAt(0, 0, CFG.START.z);
+  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 300);
+  camera.position.set(CFG.START.x, CFG.START.y + 2, CFG.START.z - 9);
+  camera.lookAt(CFG.START.x, CFG.START.y, CFG.START.z + 5);
 
   // ── Lighting ───────────────────────────────────────────────
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -402,7 +405,33 @@ function animate() {
     // ── Physics step ─────────────────────────────────────────
     world.step(1 / 60, dt, 3);
 
-    // ── Joystick + keyboard → force ──────────────────────────
+    // ── Direction-aware low camera ────────────────────────────
+    const vel = marimoBody.velocity;
+    const spd = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+    if (spd > 0.5) {
+      // camBehind = opposite of movement direction (camera stays behind marimo)
+      camBehindX += (-vel.x / spd - camBehindX) * 0.04;
+      camBehindZ += (-vel.z / spd - camBehindZ) * 0.04;
+      const bLen = Math.sqrt(camBehindX * camBehindX + camBehindZ * camBehindZ);
+      if (bLen > 0) { camBehindX /= bLen; camBehindZ /= bLen; }
+    }
+
+    const CAM_BACK = 9, CAM_H = 2.0;
+    const tp = camera.position;
+    const tx = marimoBody.position.x + camBehindX * CAM_BACK;
+    const ty = marimoBody.position.y + CAM_H;
+    const tz = marimoBody.position.z + camBehindZ * CAM_BACK;
+    tp.x += (tx - tp.x) * 0.07;
+    tp.y += (ty - tp.y) * 0.08;
+    tp.z += (tz - tp.z) * 0.07;
+    // Look past marimo in the movement direction
+    camera.lookAt(
+      marimoBody.position.x - camBehindX * 5,
+      marimoBody.position.y + 0.3,
+      marimoBody.position.z - camBehindZ * 5
+    );
+
+    // ── Joystick + keyboard → camera-relative force ───────────
     let jdx = joy.dx;
     let jdy = joy.dy;
     if (keys['ArrowUp']    || keys['KeyW']) jdy = -1;
@@ -410,28 +439,20 @@ function animate() {
     if (keys['ArrowLeft']  || keys['KeyA']) jdx = -1;
     if (keys['ArrowRight'] || keys['KeyD']) jdx =  1;
 
-    // jdx → X,  jdy: screen-up (negative) = world +Z (toward goal)
-    const fx = jdx * CFG.TILT_FORCE;
-    const fz = -jdy * CFG.TILT_FORCE;
+    // Compute camera forward/right in XZ from current camera position
+    const cfx = marimoBody.position.x - camera.position.x;
+    const cfz = marimoBody.position.z - camera.position.z;
+    const cfLen = Math.sqrt(cfx * cfx + cfz * cfz);
+    const nfx = cfLen > 0 ? cfx / cfLen : 0;
+    const nfz = cfLen > 0 ? cfz / cfLen : 1;
+    // Camera right in world = (-nfz, 0, nfx)  [from Three.js lookAt math]
+    const fx = ((-nfz) * jdx + nfx * (-jdy)) * CFG.TILT_FORCE;
+    const fz = (  nfx  * jdx + nfz * (-jdy)) * CFG.TILT_FORCE;
     marimoBody.applyForce(new CANNON.Vec3(fx, 0, fz), marimoBody.position);
 
     // ── Sync mesh ↔ body ──────────────────────────────────────
     marimoMesh.position.copy(marimoBody.position);
     marimoMesh.quaternion.copy(marimoBody.quaternion);
-
-    // ── Smooth third-person camera ────────────────────────────
-    const tp = camera.position;
-    const tx = marimoBody.position.x * 0.55;
-    const ty = marimoBody.position.y + 9;
-    const tz = marimoBody.position.z - 13;
-    tp.x += (tx - tp.x) * 0.07;
-    tp.y += (ty - tp.y) * 0.07;
-    tp.z += (tz - tp.z) * 0.07;
-    camera.lookAt(
-      marimoBody.position.x,
-      marimoBody.position.y + 1,
-      marimoBody.position.z
-    );
 
     // ── Timer ─────────────────────────────────────────────────
     timeLeft -= dt;
@@ -502,6 +523,8 @@ function startGame() {
   document.getElementById('hud').style.display           = 'block';
   document.getElementById('result-screen').style.display = 'none';
   document.getElementById('joystick-wrap').style.display = 'block';
+  camBehindX = 0; camBehindZ = -1;
+  camera.position.set(CFG.START.x, CFG.START.y + 2, CFG.START.z - 9);
   resetMarimo();
 }
 
