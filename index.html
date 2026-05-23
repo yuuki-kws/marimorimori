@@ -44,7 +44,7 @@
       z-index: 10; pointer-events: none;
     }
     #timer {
-      display: inline-block; font-size: 2.5em; font-weight: bold;
+      display: none; font-size: 2.5em; font-weight: bold;
       color: white; text-shadow: 0 2px 8px rgba(0,0,0,.6);
       background: rgba(0,0,0,.28); padding: 4px 24px;
       border-radius: 30px; backdrop-filter: blur(6px);
@@ -164,7 +164,7 @@ const CFG = {
   GRAVITY     : -18,
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
-  GAME_TIME   : 90,
+  GAME_TIME   : 99999,
   FALL_Y      : -20,
 };
 
@@ -1003,7 +1003,7 @@ function endGame(reason) {
     pit    : { t: '奈落！',            c: '#bb88ff',
                m: () => '穴に落ちてしまいました！' },
     timeout: { t: 'タイムオーバー！',  c: '#ff9944',
-               m: () => '時間切れです。もう一度挑戦！' },
+               m: () => '' },
   };
   const r = RESULTS[reason];
   title.textContent = r.t;
