@@ -153,16 +153,16 @@ const CFG = {
   GOAL        : { x: 0, z:  185, radius: 3.5 },
   // Pit zones – 10 smaller sinkholes scattered along the path
   PITS        : [
-    { x:  4, z: -155, r: 5.5 },
-    { x: -8, z: -118, r: 6   },
-    { x:  9, z:  -82, r: 5   },
-    { x: -3, z:  -46, r: 6   },
-    { x:  7, z:  -12, r: 5.5 },
-    { x: -9, z:   22, r: 6   },
-    { x:  5, z:   58, r: 5   },
-    { x: -5, z:   94, r: 6   },
-    { x:  8, z:  128, r: 5.5 },
-    { x: -4, z:  162, r: 5   },
+    { x:  4, z: -155, r: 3.0 },
+    { x: -8, z: -118, r: 3.2 },
+    { x:  9, z:  -82, r: 2.8 },
+    { x: -3, z:  -46, r: 3.2 },
+    { x:  7, z:  -12, r: 3.0 },
+    { x: -9, z:   22, r: 3.2 },
+    { x:  5, z:   58, r: 2.8 },
+    { x: -5, z:   94, r: 3.2 },
+    { x:  8, z:  128, r: 3.0 },
+    { x: -4, z:  162, r: 2.8 },
   ],
   TILT_FORCE  : 7,
   MAX_SPEED   : 8,
@@ -403,6 +403,15 @@ function buildStage() {
       rock.castShadow = true;
       scene.add(rock);
     }
+
+    // 奈落の縁に光るリング
+    const dangerRing = new THREE.Mesh(
+      new THREE.TorusGeometry(P.r * 1.05, 0.12, 8, 48),
+      new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.6 })
+    );
+    dangerRing.rotation.x = Math.PI / 2;
+    dangerRing.position.set(P.x, 0.15, P.z);
+    scene.add(dangerRing);
   });
 
   // ── Decorative trees (visual depth markers) ─────────────────
@@ -500,6 +509,15 @@ function buildTrees() {
     // Narrow corridor only: trees can get very close to the path
     if (Math.abs(bx) < 3.2) continue;
 
+    // 中央通路付近（±3〜8m）は間引いて抜け感を出す
+    if (Math.abs(bx) < 8 && Math.random() < 0.55) continue;
+
+    // 中間帯（±8〜20m）は密に配置
+    // （条件なし、そのまま通す）
+
+    // 外縁（±20m以上）は少し間引いて奥行き感を出す
+    if (Math.abs(bx) > 20 && Math.random() < 0.30) continue;
+
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
 
@@ -509,7 +527,7 @@ function buildTrees() {
 
     const gy      = terrainH(bx, bz);
     const isCedar = Math.random() < 0.65;
-    const th      = isCedar ? (16 + Math.random() * 12) : (9 + Math.random() * 8);
+    const th      = isCedar ? (22 + Math.random() * 14) : (13 + Math.random() * 10);
     const topR    = isCedar ? (0.28 + Math.random() * 0.14) : (0.40 + Math.random() * 0.18);
     const botR    = isCedar ? (0.52 + Math.random() * 0.24) : (0.78 + Math.random() * 0.30);
     const coneR   = isCedar ? (1.2 + Math.random() * 1.1) : (2.2 + Math.random() * 2.0);
@@ -860,7 +878,7 @@ function buildMossSpots() {
     beam.position.set(p.x, gy + 3, p.z);
     scene.add(beam);
 
-    mossSpots.push({ mesh, ring, x: p.x, z: p.z, collected: false });
+    mossSpots.push({ mesh, ring, beam, x: p.x, z: p.z, collected: false });
   });
 }
 
@@ -982,6 +1000,7 @@ function animate() {
         spot.collected = true;
         scene.remove(spot.mesh);
         scene.remove(spot.ring);
+        scene.remove(spot.beam);
         mossCollected++;
         document.getElementById('moss-count').textContent =
           '🌿 ' + mossCollected + ' / 5';
@@ -1104,7 +1123,7 @@ function startGame() {
   camera.position.set(CFG.START.x, CFG.START.y + 1.0, CFG.START.z - 6);
   resetMarimo();
   // 苔スポットをリセット
-  mossSpots.forEach(s => { scene.remove(s.mesh); scene.remove(s.ring); });
+  mossSpots.forEach(s => { scene.remove(s.mesh); scene.remove(s.ring); scene.remove(s.beam); });
   buildMossSpots();
   document.getElementById('moss-count').textContent = '🌿 0 / 5';
   document.getElementById('moss-hud').style.display = 'block';
