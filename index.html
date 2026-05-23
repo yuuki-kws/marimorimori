@@ -159,8 +159,8 @@ const CFG = {
     { x:  8, z:  128, r: 5.5 },
     { x: -4, z:  162, r: 5   },
   ],
-  TILT_FORCE  : 4,
-  GRAVITY     : -24,
+  TILT_FORCE  : 7,
+  GRAVITY     : -18,
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
   GAME_TIME   : 90,
@@ -411,8 +411,8 @@ function buildStage() {
 
   marimoBody = new CANNON.Body({ mass: 0.3 });
   marimoBody.addShape(new CANNON.Sphere(0.3));
-  marimoBody.linearDamping  = 0.72;
-  marimoBody.angularDamping = 0.72;
+  marimoBody.linearDamping  = 0.45;
+  marimoBody.angularDamping = 0.50;
   world.addBody(marimoBody);
 
   resetMarimo();
@@ -840,9 +840,9 @@ function animate() {
       const sx = (terrainH(mx + dh, mz) - terrainH(mx - dh, mz)) / (2 * dh);
       const sz = (terrainH(mx, mz + dh) - terrainH(mx, mz - dh)) / (2 * dh);
       marimoBody.applyForce(
-        new CANNON.Vec3(sx * (-7) * marimoBody.mass,
+        new CANNON.Vec3(sx * (-12) * marimoBody.mass,
                         0,
-                        sz * (-7) * marimoBody.mass),
+                        sz * (-12) * marimoBody.mass),
         marimoBody.position
       );
     }
