@@ -364,17 +364,14 @@ function buildStage() {
   spawnRocks(16);
 
   // ── Puddles (水たまりビジュアル) ─────────────────────────────
-  const puddleWaterMat = new THREE.MeshPhongMaterial({
-    color: 0x2266aa,
-    emissive: 0x112244,
-    specular: 0xaaddff,
-    shininess: 120,
+  const puddleWaterMat = new THREE.MeshBasicMaterial({
+    color: 0x3399cc,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.85,
   });
   const puddleRimMat = new THREE.MeshLambertMaterial({ color: 0x2a3a1a });
   const puddleShimMat = new THREE.MeshBasicMaterial({
-    color: 0xaaeeff, transparent: true, opacity: 0.45
+    color: 0xeefaff, transparent: true, opacity: 0.65
   });
 
   CFG.PUDDLES.forEach(P => {
@@ -383,13 +380,13 @@ function buildStage() {
     // 水面ディスク
     const water = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.95, 40), puddleWaterMat);
     water.rotation.x = -Math.PI / 2;
-    water.position.set(P.x, gy + 0.03, P.z);
+    water.position.set(P.x, gy + 0.18, P.z);
     scene.add(water);
 
     // 水面のハイライト（反射っぽく）
     const shim = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.55, 32), puddleShimMat);
     shim.rotation.x = -Math.PI / 2;
-    shim.position.set(P.x - P.r * 0.15, gy + 0.05, P.z - P.r * 0.1);
+    shim.position.set(P.x - P.r * 0.15, gy + 0.22, P.z - P.r * 0.1);
     scene.add(shim);
 
     // 縁の泥・草リング
@@ -494,6 +491,7 @@ function spawnRocks(count) {
 
 // ─── Dense forest – packed canopy, sky visible through gaps ───
 function buildTrees() {
+  const placedPositions = [];
   const trunkMats = [
     new THREE.MeshLambertMaterial({ color: 0x3d2510 }),
     new THREE.MeshLambertMaterial({ color: 0x4a2e18 }),
@@ -509,7 +507,7 @@ function buildTrees() {
   ];
 
   let placed = 0, tries = 0;
-  while (placed < 420 && ++tries < 12000) {
+  while (placed < 200 && ++tries < 8000) {
     const bx = (Math.random() - 0.5) * 64;   // within ±32 (stage ±35)
     const bz = -178 + Math.random() * 356;
 
@@ -527,6 +525,9 @@ function buildTrees() {
 
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
+
+    // 既存の木と近すぎる場合はスキップ（最低間隔2.5m）
+    if (placedPositions.some(p => Math.sqrt((p.x - bx) ** 2 + (p.z - bz) ** 2) < 2.5)) continue;
 
     // Keep pit zones clear
     if (CFG.PUDDLES.some(P =>
@@ -602,6 +603,7 @@ function buildTrees() {
       }
     }
 
+    placedPositions.push({ x: bx, z: bz });
     placed++;
   }
 }
@@ -697,6 +699,75 @@ function buildRockWalls(T_W, T_L) {
       mesh.position.set(cx, h / 2, cz);
       mesh.castShadow = mesh.receiveShadow = true;
       scene.add(mesh);
+    }
+  });
+  buildForestBorder();
+}
+
+// ─── ステージ端を木の壁で塞ぐ ────────────────────────────────
+function buildForestBorder() {
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2510 });
+  const leafMats = [
+    new THREE.MeshLambertMaterial({ color: 0x0b3009 }),
+    new THREE.MeshLambertMaterial({ color: 0x133810 }),
+    new THREE.MeshLambertMaterial({ color: 0x174d15 }),
+  ];
+
+  // 左右の端（x = ±33〜38）に沿ってZ方向に木を密に並べる
+  [-1, 1].forEach(side => {
+    for (let z = -185; z <= 185; z += 3.5) {
+      const x = side * (33 + Math.random() * 4);
+      const gy = terrainH(x, z);
+      const th = 18 + Math.random() * 10;
+      const coneR = 2.5 + Math.random() * 1.5;
+      const leafMat = leafMats[Math.floor(Math.random() * leafMats.length)];
+
+      // 幹
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.25, 0.45, th * 0.4, 6),
+        trunkMat
+      );
+      trunk.position.set(x, gy + th * 0.2, z);
+      trunk.castShadow = true;
+      scene.add(trunk);
+
+      // 葉（2層）
+      for (let i = 0; i < 2; i++) {
+        const r = coneR * (1.0 - i * 0.4);
+        const h = r * 0.6;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
+        cone.position.set(x, gy + th * 0.4 + i * h * 0.7 + h / 2, z);
+        cone.castShadow = (i === 0);
+        scene.add(cone);
+      }
+    }
+  });
+
+  // 前後の端（z = ±188）に沿ってX方向に木を密に並べる
+  [-1, 1].forEach(side => {
+    for (let x = -38; x <= 38; x += 3.5) {
+      const z = side * (188 + Math.random() * 2);
+      const gy = terrainH(x, z);
+      const th = 18 + Math.random() * 10;
+      const coneR = 2.5 + Math.random() * 1.5;
+      const leafMat = leafMats[Math.floor(Math.random() * leafMats.length)];
+
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.25, 0.45, th * 0.4, 6),
+        trunkMat
+      );
+      trunk.position.set(x, gy + th * 0.2, z);
+      trunk.castShadow = true;
+      scene.add(trunk);
+
+      for (let i = 0; i < 2; i++) {
+        const r = coneR * (1.0 - i * 0.4);
+        const h = r * 0.6;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
+        cone.position.set(x, gy + th * 0.4 + i * h * 0.7 + h / 2, z);
+        cone.castShadow = (i === 0);
+        scene.add(cone);
+      }
     }
   });
 }
@@ -1167,12 +1238,7 @@ function animate() {
     // ── 水たまり揺らぎ ────────────────────────────────────────
     const wt = Date.now() * 0.001;
     puddleMeshes.forEach((w, i) => {
-      w.material.opacity = 0.72 + 0.10 * Math.sin(wt * 1.2 + i * 1.3);
-      w.material.emissive.setRGB(
-        0.04 + 0.02 * Math.sin(wt * 0.8 + i),
-        0.10 + 0.04 * Math.sin(wt * 0.6 + i),
-        0.26 + 0.06 * Math.sin(wt * 1.0 + i)
-      );
+      w.material.opacity = 0.75 + 0.10 * Math.sin(wt * 1.2 + i * 1.3);
     });
   }
 
