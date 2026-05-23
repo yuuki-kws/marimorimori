@@ -182,6 +182,7 @@ let ringMesh, goalParticles, particleMat;
 let clouds = [];  // animated cloud groups
 let timeLeft = CFG.GAME_TIME;
 let worldTime = 0;
+let puddleMeshes = [];
 let mossSpots = [];
 let mossCollected = 0;
 let inPuddle = false;
@@ -291,10 +292,10 @@ function terrainH(wx, wz) {
 
   // Multi-frequency hills (max combined ~5.8 units)
   const h =
-    Math.sin(wx * 0.08  + wz * 0.05) * 2.5 +
-    Math.sin(wx * 0.14  - wz * 0.09) * 1.5 +
-    Math.cos(wx * 0.22  + wz * 0.17) * 0.8 +
-    Math.sin(wz * 0.055) * 3.0;
+    Math.sin(wx * 0.05 + wz * 0.03) * 1.4 +
+    Math.sin(wx * 0.09 - wz * 0.06) * 0.8 +
+    Math.cos(wx * 0.13 + wz * 0.10) * 0.4 +
+    Math.sin(wz * 0.035) * 1.6;
 
   // pitDip ≤ 0 carves the sinkhole; terrain rises above flat physics plane elsewhere
   return Math.max(0, h * fade) + pitDip;
@@ -363,12 +364,17 @@ function buildStage() {
   spawnRocks(16);
 
   // ── Puddles (水たまりビジュアル) ─────────────────────────────
-  const puddleWaterMat = new THREE.MeshLambertMaterial({
-    color: 0x4488bb, transparent: true, opacity: 0.72
+  const puddleWaterMat = new THREE.MeshPhongMaterial({
+    color: 0x2266aa,
+    emissive: 0x112244,
+    specular: 0xaaddff,
+    shininess: 120,
+    transparent: true,
+    opacity: 0.82,
   });
   const puddleRimMat = new THREE.MeshLambertMaterial({ color: 0x2a3a1a });
   const puddleShimMat = new THREE.MeshBasicMaterial({
-    color: 0x88ccff, transparent: true, opacity: 0.22
+    color: 0xaaeeff, transparent: true, opacity: 0.45
   });
 
   CFG.PUDDLES.forEach(P => {
@@ -411,6 +417,7 @@ function buildStage() {
       rock.position.set(rx, terrainH(rx, rz) + rr * 0.2, rz);
       scene.add(rock);
     }
+    puddleMeshes.push(water);
   });
 
   // ── Decorative trees (visual depth markers) ─────────────────
@@ -507,16 +514,16 @@ function buildTrees() {
     const bz = -178 + Math.random() * 356;
 
     // Narrow corridor only: trees can get very close to the path
-    if (Math.abs(bx) < 3.2) continue;
+    if (Math.abs(bx) < 4.0) continue;
 
-    // 中央通路付近（±3〜10m）は大きく間引いて開放感を出す
-    if (Math.abs(bx) < 10 && Math.random() < 0.75) continue;
+    // 中央通路付近（±4〜12m）はほぼ間引いて広々とした抜け感を出す
+    if (Math.abs(bx) < 12 && Math.random() < 0.85) continue;
 
-    // 中間帯（±10〜22m）は適度に間引く
-    if (Math.abs(bx) < 22 && Math.random() < 0.35) continue;
+    // 中間帯（±12〜24m）はゆったり配置
+    if (Math.abs(bx) < 24 && Math.random() < 0.55) continue;
 
-    // 外縁（±22m以上）は半分間引いて奥行き感を出す
-    if (Math.abs(bx) > 22 && Math.random() < 0.50) continue;
+    // 外縁（±24m以上）も間引いて奥行き感を出す
+    if (Math.abs(bx) > 24 && Math.random() < 0.60) continue;
 
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
@@ -1156,6 +1163,17 @@ function animate() {
       window._sun.color.copy(sCol);
       window._sun.intensity = sInt;
     }
+
+    // ── 水たまり揺らぎ ────────────────────────────────────────
+    const wt = Date.now() * 0.001;
+    puddleMeshes.forEach((w, i) => {
+      w.material.opacity = 0.72 + 0.10 * Math.sin(wt * 1.2 + i * 1.3);
+      w.material.emissive.setRGB(
+        0.04 + 0.02 * Math.sin(wt * 0.8 + i),
+        0.10 + 0.04 * Math.sin(wt * 0.6 + i),
+        0.26 + 0.06 * Math.sin(wt * 1.0 + i)
+      );
+    });
   }
 
   renderer.render(scene, camera);
