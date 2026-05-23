@@ -276,29 +276,24 @@ function terrainH(wx, wz) {
   const startFade = Math.min(1, Math.max(0, (wz - CFG.START.z - 8) / 15));
   const goalFade  = Math.min(1, Math.max(0, (CFG.GOAL.z  - wz - 8) / 15));
   // Pit zones – terrain sinks into dark sinkholes
-  let pFade = 1, pitDip = 0;
+  // 水たまりの周辺は地形をフラットに均す（水面が埋まらないように）
+  let puddleFade = 1;
   for (const P of CFG.PUDDLES) {
     const d = Math.sqrt((wx - P.x) * (wx - P.x) + (wz - P.z) * (wz - P.z));
-    if (d < P.r) {
-      const t = d / P.r;          // 0 at centre, 1 at rim
-      pFade    = Math.min(pFade, t);
-      pitDip   = Math.min(pitDip, -2.8 * (1 - t));
-      break;
-    }
-    const m = 9;
-    if (d < P.r + m) pFade = Math.min(pFade, (d - P.r) / m);
+    const m = 6;
+    if (d < P.r) { puddleFade = Math.min(puddleFade, 0); break; }
+    if (d < P.r + m) puddleFade = Math.min(puddleFade, (d - P.r) / m);
   }
-  const fade = Math.min(startFade, goalFade) * pFade;
 
-  // Multi-frequency hills (max combined ~5.8 units)
+  const fade = Math.min(startFade, goalFade);
+
   const h =
-    Math.sin(wx * 0.05 + wz * 0.03) * 1.4 +
-    Math.sin(wx * 0.09 - wz * 0.06) * 0.8 +
-    Math.cos(wx * 0.13 + wz * 0.10) * 0.4 +
-    Math.sin(wz * 0.035) * 1.6;
+    Math.sin(wx * 0.05 + wz * 0.03) * 1.8 +
+    Math.sin(wx * 0.09 - wz * 0.06) * 1.0 +
+    Math.cos(wx * 0.13 + wz * 0.10) * 0.6 +
+    Math.sin(wz * 0.035) * 2.0;
 
-  // pitDip ≤ 0 carves the sinkhole; terrain rises above flat physics plane elsewhere
-  return Math.max(0, h * fade) + pitDip;
+  return Math.max(0, h * fade * puddleFade);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -341,21 +336,11 @@ function buildStage() {
   groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
   world.addBody(groundBody);
 
-  // ── Invisible boundary walls ────────────────────────────────
-  [
-    { p: [0,    6, -191], he: [35, 6,   1] },
-    { p: [0,    6,  191], he: [35, 6,   1] },
-    { p: [-36,  6,    0], he: [1,  6, 190] },
-    { p: [ 36,  6,    0], he: [1,  6, 190] },
-  ].forEach(({ p, he }) => {
-    const b = new CANNON.Body({ mass: 0 });
-    b.addShape(new CANNON.Box(new CANNON.Vec3(...he)));
-    b.position.set(...p);
-    world.addBody(b);
-  });
+  // ── Invisible boundary walls（無効化）───────────────────────
+  // 曲線ステージの境界は isInsideStage() で管理
 
-  // ── Rock boundary walls ──────────────────────────────────────
-  buildRockWalls(T_W, T_L);
+  // ── Rock boundary walls（無効化）────────────────────────────
+  // buildRockWalls(T_W, T_L);
 
   // ── Clouds ───────────────────────────────────────────────────
   buildClouds();
@@ -380,13 +365,13 @@ function buildStage() {
     // 水面ディスク
     const water = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.95, 40), puddleWaterMat);
     water.rotation.x = -Math.PI / 2;
-    water.position.set(P.x, gy + 0.18, P.z);
+    water.position.set(P.x, 0.25, P.z);
     scene.add(water);
 
     // 水面のハイライト（反射っぽく）
     const shim = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.55, 32), puddleShimMat);
     shim.rotation.x = -Math.PI / 2;
-    shim.position.set(P.x - P.r * 0.15, gy + 0.22, P.z - P.r * 0.1);
+    shim.position.set(P.x - P.r * 0.15, 0.30, P.z - P.r * 0.1);
     scene.add(shim);
 
     // 縁の泥・草リング
@@ -395,7 +380,7 @@ function buildStage() {
       puddleRimMat
     );
     rim.rotation.x = -Math.PI / 2;
-    rim.position.set(P.x, gy + 0.01, P.z);
+    rim.position.set(P.x, 0.12, P.z);
     scene.add(rim);
 
     // 縁の小石
@@ -507,7 +492,7 @@ function buildTrees() {
   ];
 
   let placed = 0, tries = 0;
-  while (placed < 200 && ++tries < 8000) {
+  while (placed < 300 && ++tries < 10000) {
     const bx = (Math.random() - 0.5) * 64;   // within ±32 (stage ±35)
     const bz = -178 + Math.random() * 356;
 
@@ -648,6 +633,21 @@ function buildClouds() {
 }
 
 // ─── Rock boundary walls – seamless, no gaps ─────────────────
+// ─── ステージ境界：曲線のある不規則な形 ─────────────────────
+function isInsideStage(x, z) {
+  // ベースの楕円（横35m・縦190m）
+  const ex = x / 34;
+  const ez = z / 188;
+  if (ex * ex + ez * ez > 1.0) return false;
+
+  // サイン波で左右をギザギザに
+  const warpX = 6 * Math.sin(z * 0.04 + 0.5) + 4 * Math.sin(z * 0.09 - 1.2);
+  const limitX = 28 + warpX;
+  if (Math.abs(x) > limitX) return false;
+
+  return true;
+}
+
 function buildRockWalls(T_W, T_L) {
   const mats = [
     new THREE.MeshLambertMaterial({ color: 0x2c2218 }),
@@ -713,63 +713,42 @@ function buildForestBorder() {
     new THREE.MeshLambertMaterial({ color: 0x174d15 }),
   ];
 
-  // 左右の端（x = ±33〜38）に沿ってZ方向に木を密に並べる
-  [-1, 1].forEach(side => {
-    for (let z = -185; z <= 185; z += 3.5) {
-      const x = side * (33 + Math.random() * 4);
-      const gy = terrainH(x, z);
-      const th = 18 + Math.random() * 10;
-      const coneR = 2.5 + Math.random() * 1.5;
-      const leafMat = leafMats[Math.floor(Math.random() * leafMats.length)];
-
-      // 幹
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.25, 0.45, th * 0.4, 6),
-        trunkMat
-      );
-      trunk.position.set(x, gy + th * 0.2, z);
-      trunk.castShadow = true;
-      scene.add(trunk);
-
-      // 葉（2層）
-      for (let i = 0; i < 2; i++) {
-        const r = coneR * (1.0 - i * 0.4);
-        const h = r * 0.6;
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
-        cone.position.set(x, gy + th * 0.4 + i * h * 0.7 + h / 2, z);
-        cone.castShadow = (i === 0);
-        scene.add(cone);
+  // ステージ境界に沿って木を密に並べる
+  // Z方向に走査し、isInsideStage の境界付近に木を配置
+  for (let z = -190; z <= 190; z += 2.8) {
+    [-1, 1].forEach(side => {
+      // 境界Xを探索（外から内に向かって）
+      let borderX = 0;
+      for (let xi = 38; xi >= 0; xi -= 0.5) {
+        if (isInsideStage(side * xi, z)) { borderX = side * xi; break; }
       }
-    }
-  });
+      if (borderX === 0) return;
 
-  // 前後の端（z = ±188）に沿ってX方向に木を密に並べる
-  [-1, 1].forEach(side => {
-    for (let x = -38; x <= 38; x += 3.5) {
-      const z = side * (188 + Math.random() * 2);
-      const gy = terrainH(x, z);
-      const th = 18 + Math.random() * 10;
-      const coneR = 2.5 + Math.random() * 1.5;
-      const leafMat = leafMats[Math.floor(Math.random() * leafMats.length)];
+      // 境界から外側に2〜5本の木を重ねて壁を作る
+      for (let layer = 0; layer < 3; layer++) {
+        const x = borderX + side * (layer * 2.5 + Math.random() * 1.5);
+        const gy = Math.max(0, terrainH(x, z));
+        const th = 16 + Math.random() * 12;
+        const coneR = 2.2 + Math.random() * 1.8;
+        const leafMat = leafMats[Math.floor(Math.random() * leafMats.length)];
 
-      const trunk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.25, 0.45, th * 0.4, 6),
-        trunkMat
-      );
-      trunk.position.set(x, gy + th * 0.2, z);
-      trunk.castShadow = true;
-      scene.add(trunk);
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.22, 0.42, th * 0.4, 6),
+          trunkMat
+        );
+        trunk.position.set(x, gy + th * 0.2, z);
+        scene.add(trunk);
 
-      for (let i = 0; i < 2; i++) {
-        const r = coneR * (1.0 - i * 0.4);
-        const h = r * 0.6;
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
-        cone.position.set(x, gy + th * 0.4 + i * h * 0.7 + h / 2, z);
-        cone.castShadow = (i === 0);
-        scene.add(cone);
+        for (let i = 0; i < 2; i++) {
+          const r = coneR * (1.0 - i * 0.38);
+          const h = r * 0.65;
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
+          cone.position.set(x, gy + th * 0.4 + i * h * 0.7 + h / 2, z);
+          scene.add(cone);
+        }
       }
-    }
-  });
+    });
+  }
 }
 
 // ─── Wild flowers ─────────────────────────────────────────────
@@ -1140,6 +1119,18 @@ function animate() {
     const p = marimoBody.position;
     if (timeLeft  <= 0)    { endGame('timeout'); return; }
     if (p.y       < CFG.FALL_Y) { endGame('fall');    return; }
+
+        // ── ステージ境界で押し戻す ───────────────────────────
+        if (!isInsideStage(p.x, p.z)) {
+          // 中心方向に向けて速度を反転・減衰させる
+          marimoBody.velocity.x *= -0.4;
+          marimoBody.velocity.z *= -0.4;
+          // 中心へ引き戻す力
+          marimoBody.applyForce(
+            new CANNON.Vec3(-p.x * 2.5, 0, -p.z * 2.5),
+            marimoBody.position
+          );
+        }
 
         // ── 水たまり減速 ──────────────────────────────────────
         const nowInPuddle = CFG.PUDDLES.some(P =>
