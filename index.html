@@ -288,11 +288,11 @@ function terrainH(wx, wz) {
   const fade = Math.min(startFade, goalFade);
 
   const h =
-    Math.sin(wx * 0.05 + wz * 0.03) * 3.5 +
-    Math.sin(wx * 0.09 - wz * 0.06) * 2.2 +
-    Math.cos(wx * 0.13 + wz * 0.10) * 1.4 +
-    Math.sin(wz * 0.035) * 4.0 +
-    Math.sin(wx * 0.18 + wz * 0.22) * 0.8;
+    Math.sin(wx * 0.05 + wz * 0.03) * 2.3 +
+    Math.sin(wx * 0.09 - wz * 0.06) * 1.4 +
+    Math.cos(wx * 0.13 + wz * 0.10) * 0.9 +
+    Math.sin(wz * 0.035) * 2.6 +
+    Math.sin(wx * 0.18 + wz * 0.22) * 0.5;
 
   return Math.max(0, h * fade * puddleFade);
 }
