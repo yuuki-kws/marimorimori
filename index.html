@@ -160,6 +160,7 @@ const CFG = {
     { x: -4, z:  162, r: 5   },
   ],
   TILT_FORCE  : 7,
+  MAX_SPEED   : 6,
   GRAVITY     : -18,
   FRICTION    : 0.8,
   RESTITUTION : 0.3,
@@ -890,6 +891,17 @@ function animate() {
     const fx = ((-nfz) * jdx + nfx * (-jdy)) * CFG.TILT_FORCE;
     const fz = (  nfx  * jdx + nfz * (-jdy)) * CFG.TILT_FORCE;
     marimoBody.applyForce(new CANNON.Vec3(fx, 0, fz), marimoBody.position);
+
+    // ── 最高速度制限 ──────────────────────────────────────────
+    {
+      const v = marimoBody.velocity;
+      const spd = Math.sqrt(v.x * v.x + v.z * v.z);
+      if (spd > CFG.MAX_SPEED) {
+        const scale = CFG.MAX_SPEED / spd;
+        marimoBody.velocity.x = v.x * scale;
+        marimoBody.velocity.z = v.z * scale;
+      }
+    }
 
     // ── Sync mesh ↔ body ──────────────────────────────────────
     marimoMesh.position.copy(marimoBody.position);
