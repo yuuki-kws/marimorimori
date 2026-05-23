@@ -120,7 +120,7 @@
 <div id="hud"><div id="timer">90</div></div>
 <div id="moss-hud" style="position:fixed;top:14px;left:16px;display:none;z-index:10;pointer-events:none;">
   <div id="moss-count" style="font-size:1.4em;font-weight:bold;color:#aaffaa;text-shadow:0 2px 8px rgba(0,0,0,.7);background:rgba(0,0,0,.28);padding:4px 18px;border-radius:30px;backdrop-filter:blur(6px);">
-    🌿 0 / 10
+    🌿 0 / 5
   </div>
 </div>
 
@@ -826,10 +826,11 @@ function buildMossSpots() {
   mossCollected = 0;
 
   const positions = [
-    { x: -12, z: -140 }, { x:  15, z: -100 }, { x:  -8, z:  -60 },
-    { x:  18, z:  -20 }, { x: -16, z:   20 }, { x:  10, z:   55 },
-    { x: -14, z:   90 }, { x:  17, z:  125 }, { x:  -9, z:  155 },
-    { x:  13, z:  170 },
+    { x: -12, z: -140 },
+    { x:  15, z:  -60 },
+    { x: -16, z:   20 },
+    { x:  10, z:   90 },
+    { x:  -9, z:  155 },
   ];
 
   positions.forEach((p, i) => {
@@ -974,7 +975,7 @@ function animate() {
         scene.remove(spot.ring);
         mossCollected++;
         document.getElementById('moss-count').textContent =
-          '🌿 ' + mossCollected + ' / 10';
+          '🌿 ' + mossCollected + ' / 5';
       }
     });
 
@@ -1051,6 +1052,7 @@ function inPit(p) {
 }
 
 function atGoal(p) {
+  if (mossCollected < 5) return false;
   return dist2D(p.x, p.z, CFG.GOAL.x, CFG.GOAL.z) < CFG.GOAL.radius && p.y < 1.5;
 }
 
@@ -1095,7 +1097,7 @@ function startGame() {
   // 苔スポットをリセット
   mossSpots.forEach(s => { scene.remove(s.mesh); scene.remove(s.ring); });
   buildMossSpots();
-  document.getElementById('moss-count').textContent = '🌿 0 / 10';
+  document.getElementById('moss-count').textContent = '🌿 0 / 5';
   document.getElementById('moss-hud').style.display = 'block';
 }
 
