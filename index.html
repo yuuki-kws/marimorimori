@@ -118,6 +118,11 @@
 
 <!-- ── HUD ───────────────────────────────────────────────── -->
 <div id="hud"><div id="timer">90</div></div>
+<div id="moss-hud" style="position:fixed;top:14px;left:16px;display:none;z-index:10;pointer-events:none;">
+  <div id="moss-count" style="font-size:1.4em;font-weight:bold;color:#aaffaa;text-shadow:0 2px 8px rgba(0,0,0,.7);background:rgba(0,0,0,.28);padding:4px 18px;border-radius:30px;backdrop-filter:blur(6px);">
+    🌿 0 / 10
+  </div>
+</div>
 
 <!-- ── Result Screen ─────────────────────────────────────── -->
 <div id="result-screen">
@@ -177,6 +182,8 @@ let ringMesh, goalParticles, particleMat;
 let clouds = [];  // animated cloud groups
 let timeLeft = CFG.GAME_TIME;
 let worldTime = 0;
+let mossSpots = [];
+let mossCollected = 0;
 let gameState = 'idle';   // 'idle' | 'playing' | 'over'
 const keys = {};
 
@@ -417,6 +424,7 @@ function buildStage() {
   marimoBody.linearDamping  = 0.45;
   marimoBody.angularDamping = 0.50;
   world.addBody(marimoBody);
+  buildMossSpots();
 
   resetMarimo();
 }
@@ -810,6 +818,42 @@ function createMarimo() {
   mesh.receiveShadow = true;
   return mesh;
 }
+// ════════════════════════════════════════════════════════════════
+// MOSS SPOTS
+// ════════════════════════════════════════════════════════════════
+function buildMossSpots() {
+  mossSpots = [];
+  mossCollected = 0;
+
+  const positions = [
+    { x: -12, z: -140 }, { x:  15, z: -100 }, { x:  -8, z:  -60 },
+    { x:  18, z:  -20 }, { x: -16, z:   20 }, { x:  10, z:   55 },
+    { x: -14, z:   90 }, { x:  17, z:  125 }, { x:  -9, z:  155 },
+    { x:  13, z:  170 },
+  ];
+
+  positions.forEach((p, i) => {
+    const gy = terrainH(p.x, p.z);
+
+    // 発光する球体（苔スポット本体）
+    const geo = new THREE.SphereGeometry(0.4, 16, 16);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x44ff88 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(p.x, gy + 0.4, p.z);
+    scene.add(mesh);
+
+    // 周囲のリング
+    const ringGeo = new THREE.TorusGeometry(0.7, 0.06, 8, 32);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x88ffcc, transparent: true, opacity: 0.7 });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(p.x, gy + 0.1, p.z);
+    scene.add(ring);
+
+    mossSpots.push({ mesh, ring, x: p.x, z: p.z, collected: false });
+  });
+}
+
 // === MARIMO MESH ===
 
 // ════════════════════════════════════════════════════════════════
@@ -918,6 +962,32 @@ function animate() {
     if (inPit(p))               { endGame('pit');     return; }
     if (atGoal(p))              { endGame('clear');   return; }
 
+    // ── 苔スポット収集判定 ──────────────────────────────────────
+    mossSpots.forEach(spot => {
+      if (spot.collected) return;
+      const dx = marimoBody.position.x - spot.x;
+      const dz = marimoBody.position.z - spot.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < 1.2) {
+        spot.collected = true;
+        scene.remove(spot.mesh);
+        scene.remove(spot.ring);
+        mossCollected++;
+        document.getElementById('moss-count').textContent =
+          '🌿 ' + mossCollected + ' / 10';
+      }
+    });
+
+    // 苔スポットのアニメーション
+    const pulse = 0.6 + 0.4 * Math.sin(Date.now() * 0.004);
+    mossSpots.forEach(spot => {
+      if (!spot.collected) {
+        spot.mesh.material.color.setRGB(0.27 * pulse, pulse, 0.53 * pulse);
+        spot.ring.material.opacity = 0.4 + 0.3 * pulse;
+        spot.ring.rotation.z += dt * 1.2;
+      }
+    });
+
     // ── Goal FX animation ─────────────────────────────────────
     if (ringMesh) ringMesh.rotation.y += dt * 1.2;
     goalParticles.rotation.y += dt * 0.9;
@@ -1022,12 +1092,18 @@ function startGame() {
   camBehindX = 0; camBehindZ = -1;
   camera.position.set(CFG.START.x, CFG.START.y + 1.0, CFG.START.z - 6);
   resetMarimo();
+  // 苔スポットをリセット
+  mossSpots.forEach(s => { scene.remove(s.mesh); scene.remove(s.ring); });
+  buildMossSpots();
+  document.getElementById('moss-count').textContent = '🌿 0 / 10';
+  document.getElementById('moss-hud').style.display = 'block';
 }
 
 function endGame(reason) {
   if (gameState !== 'playing') return;
   gameState = 'over';
   document.getElementById('hud').style.display           = 'none';
+  document.getElementById('moss-hud').style.display = 'none';
   document.getElementById('joystick-wrap').style.display = 'none';
   joy.dx = 0; joy.dy = 0; joy.active = false;
   document.getElementById('joystick-knob').style.transform = 'translate(-50%, -50%)';
