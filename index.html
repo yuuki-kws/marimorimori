@@ -509,7 +509,7 @@ function buildTrees() {
 
     const gy      = terrainH(bx, bz);
     const isCedar = Math.random() < 0.65;
-    const th      = isCedar ? (9 + Math.random() * 10) : (5 + Math.random() * 6);
+    const th      = isCedar ? (16 + Math.random() * 12) : (9 + Math.random() * 8);
     const topR    = isCedar ? (0.28 + Math.random() * 0.14) : (0.40 + Math.random() * 0.18);
     const botR    = isCedar ? (0.52 + Math.random() * 0.24) : (0.78 + Math.random() * 0.30);
     const coneR   = isCedar ? (1.2 + Math.random() * 1.1) : (2.2 + Math.random() * 2.0);
@@ -684,7 +684,7 @@ function buildFlowers() {
   const centerMat = new THREE.MeshLambertMaterial({ color: 0xffee22 });
 
   let placed = 0, tries = 0;
-  while (placed < 800 && ++tries < 18000) {
+  while (placed < 1400 && ++tries < 30000) {
     const x = (Math.random() - 0.5) * 62;
     const z = -174 + Math.random() * 348;
 
@@ -837,19 +837,28 @@ function buildMossSpots() {
     const gy = terrainH(p.x, p.z);
 
     // 発光する球体（苔スポット本体）
-    const geo = new THREE.SphereGeometry(0.4, 16, 16);
+    const geo = new THREE.SphereGeometry(0.7, 16, 16);
     const mat = new THREE.MeshBasicMaterial({ color: 0x44ff88 });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(p.x, gy + 0.4, p.z);
+    mesh.position.set(p.x, gy + 1.2, p.z);
     scene.add(mesh);
 
     // 周囲のリング
-    const ringGeo = new THREE.TorusGeometry(0.7, 0.06, 8, 32);
+    const ringGeo = new THREE.TorusGeometry(1.2, 0.09, 8, 32);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0x88ffcc, transparent: true, opacity: 0.7 });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = Math.PI / 2;
-    ring.position.set(p.x, gy + 0.1, p.z);
+    ring.position.set(p.x, gy + 0.3, p.z);
     scene.add(ring);
+
+    // 光の柱（遠くからでも視認できる）
+    const beamGeo = new THREE.CylinderGeometry(0.08, 0.35, 6, 8, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0x88ffcc, transparent: true, opacity: 0.18, side: THREE.DoubleSide
+    });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.set(p.x, gy + 3, p.z);
+    scene.add(beam);
 
     mossSpots.push({ mesh, ring, x: p.x, z: p.z, collected: false });
   });
@@ -969,7 +978,7 @@ function animate() {
       const dx = marimoBody.position.x - spot.x;
       const dz = marimoBody.position.z - spot.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
-      if (dist < 1.2) {
+      if (dist < 1.8) {
         spot.collected = true;
         scene.remove(spot.mesh);
         scene.remove(spot.ring);
