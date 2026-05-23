@@ -483,14 +483,12 @@ function buildTrees() {
   ];
 
   let placed = 0, tries = 0;
-  while (placed < 280 && ++tries < 8000) {
+  while (placed < 420 && ++tries < 12000) {
     const bx = (Math.random() - 0.5) * 64;   // within ±32 (stage ±35)
     const bz = -178 + Math.random() * 356;
 
     // Narrow corridor only: trees can get very close to the path
     if (Math.abs(bx) < 3.2) continue;
-    // Inner zone (±3–10): allow 45% through (packed near the path)
-    if (Math.abs(bx) < 10 && Math.random() < 0.45) continue;
 
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
@@ -521,7 +519,7 @@ function buildTrees() {
 
     // Physics: CANNON.Box – sphere-box is the most reliable narrowphase in Cannon.js 0.6.2
     // Full trunk height so marimo cannot clip through even the leafy upper section
-    if (Math.abs(bx) < 18) {
+    if (Math.abs(bx) < 12) {
       const hr = botR * 0.72;  // half-width of box (slightly inside visual trunk)
       const tBody = new CANNON.Body({ mass: 0 });
       tBody.addShape(new CANNON.Box(new CANNON.Vec3(hr, th / 2, hr)));
