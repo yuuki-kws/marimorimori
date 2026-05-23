@@ -152,7 +152,7 @@ const CFG = {
   START       : { x: 0, y: 1.0, z: -185 },
   GOAL        : { x: 0, z:  185, radius: 3.5 },
   // Pit zones – 10 smaller sinkholes scattered along the path
-  PITS        : [
+  PUDDLES     : [
     { x:  4, z: -155, r: 3.0 },
     { x: -8, z: -118, r: 3.2 },
     { x:  9, z:  -82, r: 2.8 },
@@ -184,6 +184,8 @@ let timeLeft = CFG.GAME_TIME;
 let worldTime = 0;
 let mossSpots = [];
 let mossCollected = 0;
+let inPuddle = false;
+let puddleSlowTimer = 0;
 let gameState = 'idle';   // 'idle' | 'playing' | 'over'
 const keys = {};
 
@@ -274,7 +276,7 @@ function terrainH(wx, wz) {
   const goalFade  = Math.min(1, Math.max(0, (CFG.GOAL.z  - wz - 8) / 15));
   // Pit zones – terrain sinks into dark sinkholes
   let pFade = 1, pitDip = 0;
-  for (const P of CFG.PITS) {
+  for (const P of CFG.PUDDLES) {
     const d = Math.sqrt((wx - P.x) * (wx - P.x) + (wz - P.z) * (wz - P.z));
     if (d < P.r) {
       const t = d / P.r;          // 0 at centre, 1 at rim
@@ -360,58 +362,55 @@ function buildStage() {
   // ── Rock obstacles (16 pcs) ────────────────────────────────
   spawnRocks(16);
 
-  // ── Sinkholes (pit visuals) ───────────────────────────────────
-  const pitVoidMat = new THREE.MeshBasicMaterial({ color: 0x010103, side: THREE.DoubleSide });
-  const pitEdgeMat = new THREE.MeshLambertMaterial({ color: 0x1a120a });
-  const pitFogMat  = new THREE.MeshBasicMaterial({ color: 0x08060f, transparent: true, opacity: 0.55 });
-  CFG.PITS.forEach(P => {
-    // Dark abyss disk at the bottom of the depression
-    const void_ = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.98, 32), pitVoidMat);
-    void_.rotation.x = -Math.PI / 2;
-    void_.position.set(P.x, -2.6, P.z);
-    scene.add(void_);
+  // ── Puddles (水たまりビジュアル) ─────────────────────────────
+  const puddleWaterMat = new THREE.MeshLambertMaterial({
+    color: 0x4488bb, transparent: true, opacity: 0.72
+  });
+  const puddleRimMat = new THREE.MeshLambertMaterial({ color: 0x2a3a1a });
+  const puddleShimMat = new THREE.MeshBasicMaterial({
+    color: 0x88ccff, transparent: true, opacity: 0.22
+  });
 
-    // Slightly lighter ring at the rim to mark the danger edge
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(P.r * 0.88, P.r * 1.08, 32),
-      new THREE.MeshBasicMaterial({ color: 0x2a1a08, side: THREE.DoubleSide })
+  CFG.PUDDLES.forEach(P => {
+    const gy = terrainH(P.x, P.z);
+
+    // 水面ディスク
+    const water = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.95, 40), puddleWaterMat);
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(P.x, gy + 0.03, P.z);
+    scene.add(water);
+
+    // 水面のハイライト（反射っぽく）
+    const shim = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.55, 32), puddleShimMat);
+    shim.rotation.x = -Math.PI / 2;
+    shim.position.set(P.x - P.r * 0.15, gy + 0.05, P.z - P.r * 0.1);
+    scene.add(shim);
+
+    // 縁の泥・草リング
+    const rim = new THREE.Mesh(
+      new THREE.RingGeometry(P.r * 0.93, P.r * 1.12, 40),
+      puddleRimMat
     );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(P.x, 0.04, P.z);
-    scene.add(ring);
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.set(P.x, gy + 0.01, P.z);
+    scene.add(rim);
 
-    // Misty fog disk at ground level – eerie purple-black haze
-    const fog = new THREE.Mesh(new THREE.CircleGeometry(P.r * 0.82, 24), pitFogMat);
-    fog.rotation.x = -Math.PI / 2;
-    fog.position.set(P.x, 0.08, P.z);
-    scene.add(fog);
-
-    // Jagged rocks around the rim
-    for (let i = 0; i < 10; i++) {
-      const angle = (i / 10) * Math.PI * 2 + Math.random() * 0.5;
-      const dist  = P.r * (0.92 + Math.random() * 0.22);
+    // 縁の小石
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.6;
+      const dist = P.r * (0.95 + Math.random() * 0.18);
       const rx = P.x + Math.cos(angle) * dist;
       const rz = P.z + Math.sin(angle) * dist;
-      const rr = 0.4 + Math.random() * 0.7;
+      const rr = 0.15 + Math.random() * 0.3;
       const rock = new THREE.Mesh(
         new THREE.IcosahedronGeometry(rr, 0),
-        pitEdgeMat
+        puddleRimMat
       );
-      rock.scale.set(0.7 + Math.random() * 0.5, 0.4 + Math.random() * 0.4, 0.7 + Math.random() * 0.5);
-      rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
-      rock.position.set(rx, terrainH(rx, rz) + rr * 0.25, rz);
-      rock.castShadow = true;
+      rock.scale.set(1.0, 0.5, 1.0);
+      rock.rotation.y = Math.random() * Math.PI * 2;
+      rock.position.set(rx, terrainH(rx, rz) + rr * 0.2, rz);
       scene.add(rock);
     }
-
-    // 奈落の縁に光るリング
-    const dangerRing = new THREE.Mesh(
-      new THREE.TorusGeometry(P.r * 1.05, 0.12, 8, 48),
-      new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.6 })
-    );
-    dangerRing.rotation.x = Math.PI / 2;
-    dangerRing.position.set(P.x, 0.15, P.z);
-    scene.add(dangerRing);
   });
 
   // ── Decorative trees (visual depth markers) ─────────────────
@@ -419,6 +418,7 @@ function buildStage() {
 
   // ── Wild flowers ─────────────────────────────────────────────
   buildFlowers();
+  buildUndergrowth();
 
   // ── Goal – cave entrance ───────────────────────────────────
   buildCave();
@@ -456,7 +456,7 @@ function spawnRocks(count) {
 
     if (dist2D(x, z, CFG.START.x, CFG.START.z) < 12) continue;
     if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 14) continue;
-    if (CFG.PITS.some(P =>
+    if (CFG.PUDDLES.some(P =>
       Math.sqrt((x - P.x) ** 2 + (z - P.z) ** 2) < P.r + 1)) continue;
 
     const gy  = terrainH(x, z);
@@ -509,20 +509,20 @@ function buildTrees() {
     // Narrow corridor only: trees can get very close to the path
     if (Math.abs(bx) < 3.2) continue;
 
-    // 中央通路付近（±3〜8m）は間引いて抜け感を出す
-    if (Math.abs(bx) < 8 && Math.random() < 0.55) continue;
+    // 中央通路付近（±3〜10m）は大きく間引いて開放感を出す
+    if (Math.abs(bx) < 10 && Math.random() < 0.75) continue;
 
-    // 中間帯（±8〜20m）は密に配置
-    // （条件なし、そのまま通す）
+    // 中間帯（±10〜22m）は適度に間引く
+    if (Math.abs(bx) < 22 && Math.random() < 0.35) continue;
 
-    // 外縁（±20m以上）は少し間引いて奥行き感を出す
-    if (Math.abs(bx) > 20 && Math.random() < 0.30) continue;
+    // 外縁（±22m以上）は半分間引いて奥行き感を出す
+    if (Math.abs(bx) > 22 && Math.random() < 0.50) continue;
 
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
 
     // Keep pit zones clear
-    if (CFG.PITS.some(P =>
+    if (CFG.PUDDLES.some(P =>
       Math.sqrt((bx - P.x) ** 2 + (bz - P.z) ** 2) < P.r + 3)) continue;
 
     const gy      = terrainH(bx, bz);
@@ -708,7 +708,7 @@ function buildFlowers() {
 
     if (dist2D(x, z, CFG.START.x, CFG.START.z) < 9)  continue;
     if (dist2D(x, z, CFG.GOAL.x,  CFG.GOAL.z)  < 11) continue;
-    if (CFG.PITS.some(P =>
+    if (CFG.PUDDLES.some(P =>
       Math.sqrt((x - P.x) ** 2 + (z - P.z) ** 2) < P.r + 2)) continue;
 
     const gy  = terrainH(x, z);
@@ -735,6 +735,81 @@ function buildFlowers() {
     group.position.set(x, gy, z);
     group.rotation.y = Math.random() * Math.PI * 2;
     scene.add(group);
+    placed++;
+  }
+}
+
+// ─── 草・低木・シダなどの下草 ────────────────────────────────
+function buildUndergrowth() {
+  const grassMat  = new THREE.MeshLambertMaterial({ color: 0x2d6b1a, side: THREE.DoubleSide });
+  const fernMat   = new THREE.MeshLambertMaterial({ color: 0x1e5c12, side: THREE.DoubleSide });
+  const shrubMat  = new THREE.MeshLambertMaterial({ color: 0x3a7a20 });
+
+  let placed = 0, tries = 0;
+  while (placed < 1200 && ++tries < 30000) {
+    const x = (Math.random() - 0.5) * 62;
+    const z = -174 + Math.random() * 348;
+    if (dist2D(x, z, CFG.START.x, CFG.START.z) < 8) continue;
+    if (dist2D(x, z, CFG.GOAL.x, CFG.GOAL.z) < 10) continue;
+    if (CFG.PUDDLES.some(P =>
+      Math.sqrt((x - P.x) ** 2 + (z - P.z) ** 2) < P.r + 1.5)) continue;
+
+    const gy = terrainH(x, z);
+    const type = Math.random();
+
+    if (type < 0.50) {
+      // 草: 細い板を2枚交差させる
+      const h = 0.3 + Math.random() * 0.5;
+      const w = 0.2 + Math.random() * 0.3;
+      const geo = new THREE.PlaneGeometry(w, h);
+      const g1 = new THREE.Mesh(geo, grassMat);
+      const g2 = new THREE.Mesh(geo, grassMat);
+      g2.rotation.y = Math.PI / 2;
+      const group = new THREE.Group();
+      group.add(g1); group.add(g2);
+      group.position.set(x, gy + h / 2, z);
+      group.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(group);
+
+    } else if (type < 0.80) {
+      // シダ: 楕円形の薄い板を放射状に3〜5枚
+      const n = 3 + Math.floor(Math.random() * 3);
+      const group = new THREE.Group();
+      for (let i = 0; i < n; i++) {
+        const lw = 0.12 + Math.random() * 0.18;
+        const lh = 0.4 + Math.random() * 0.5;
+        const leaf = new THREE.Mesh(new THREE.PlaneGeometry(lw, lh), fernMat);
+        leaf.rotation.y = (i / n) * Math.PI * 2;
+        leaf.rotation.x = -0.4 - Math.random() * 0.3;
+        leaf.position.set(
+          Math.cos((i / n) * Math.PI * 2) * lh * 0.35,
+          lh * 0.3,
+          Math.sin((i / n) * Math.PI * 2) * lh * 0.35
+        );
+        group.add(leaf);
+      }
+      group.position.set(x, gy, z);
+      group.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(group);
+
+    } else {
+      // 低木: 小さな球体を2〜3個まとめたクラスター
+      const n = 2 + Math.floor(Math.random() * 2);
+      const group = new THREE.Group();
+      for (let i = 0; i < n; i++) {
+        const r = 0.18 + Math.random() * 0.22;
+        const blob = new THREE.Mesh(new THREE.SphereGeometry(r, 5, 4), shrubMat);
+        blob.position.set(
+          (Math.random() - 0.5) * 0.4,
+          r + Math.random() * 0.1,
+          (Math.random() - 0.5) * 0.4
+        );
+        group.add(blob);
+      }
+      group.position.set(x, gy, z);
+      scene.add(group);
+    }
+
     placed++;
   }
 }
@@ -987,7 +1062,23 @@ function animate() {
     const p = marimoBody.position;
     if (timeLeft  <= 0)    { endGame('timeout'); return; }
     if (p.y       < CFG.FALL_Y) { endGame('fall');    return; }
-    if (inPit(p))               { endGame('pit');     return; }
+
+        // ── 水たまり減速 ──────────────────────────────────────
+        const nowInPuddle = CFG.PUDDLES.some(P =>
+          Math.sqrt((p.x - P.x) ** 2 + (p.z - P.z) ** 2) < P.r * 0.93
+        );
+        if (nowInPuddle) {
+          inPuddle = true;
+          puddleSlowTimer = 3.0; // 水たまりを出てから3秒間も減速
+          marimoBody.velocity.x *= 0.88;
+          marimoBody.velocity.z *= 0.88;
+        } else if (puddleSlowTimer > 0) {
+          puddleSlowTimer -= dt;
+          const slowRate = 0.90 + 0.10 * (1 - puddleSlowTimer / 3.0);
+          marimoBody.velocity.x *= slowRate;
+          marimoBody.velocity.z *= slowRate;
+          if (puddleSlowTimer <= 0) inPuddle = false;
+        }
     if (atGoal(p))              { endGame('clear');   return; }
 
     // ── 苔スポット収集判定 ──────────────────────────────────────
@@ -1073,12 +1164,6 @@ function animate() {
 // ════════════════════════════════════════════════════════════════
 //  CONDITION CHECKS
 // ════════════════════════════════════════════════════════════════
-function inPit(p) {
-  return CFG.PITS.some(P =>
-    Math.sqrt((p.x - P.x) * (p.x - P.x) + (p.z - P.z) * (p.z - P.z)) < P.r * 0.68
-  );
-}
-
 function atGoal(p) {
   if (mossCollected < 5) return false;
   return dist2D(p.x, p.z, CFG.GOAL.x, CFG.GOAL.z) < CFG.GOAL.radius && p.y < 1.5;
@@ -1146,8 +1231,6 @@ function endGame(reason) {
                m: () => `残り ${Math.ceil(timeLeft)} 秒でクリア！すごい！` },
     fall   : { t: '落下…',             c: '#ff6b6b',
                m: () => 'マリモが落ちてしまいました' },
-    pit    : { t: '奈落！',            c: '#bb88ff',
-               m: () => '穴に落ちてしまいました！' },
     timeout: { t: 'タイムオーバー！',  c: '#ff9944',
                m: () => '' },
   };
