@@ -182,6 +182,7 @@ let ringMesh, goalParticles, particleMat;
 let clouds = [];  // animated cloud groups
 let timeLeft = CFG.GAME_TIME;
 let worldTime = 0;
+let _activeTreeBodies = [];
 let puddleMeshes = [];
 let mossSpots = [];
 let mossCollected = 0;
@@ -233,6 +234,15 @@ function init() {
     near: 1, far: 350, left: -85, right: 85, top: 85, bottom: -85
   });
   scene.add(sun);
+
+  // 月明かり
+  window._moon = new THREE.DirectionalLight(0x8899cc, 0.0);
+  window._moon.position.set(-40, 60, -30);
+  scene.add(window._moon);
+
+  // 夜の環境光（最低限の視認性確保）
+  window._nightAmb = new THREE.AmbientLight(0x223355, 0.0);
+  scene.add(window._nightAmb);
 
   // Cool sky fill (opposite side) – subtle bounced light from open sky
   const fill = new THREE.DirectionalLight(0x6090c8, 0.4);
@@ -468,6 +478,7 @@ function spawnRocks(count) {
 
 // ─── Dense forest – packed canopy, sky visible through gaps ───
 function buildTrees() {
+  window._treeTrunks = []; // { x, z, r } の配列
   const placedPositions = [];
   const trunkMats = [
     new THREE.MeshLambertMaterial({ color: 0x3d2510 }),
@@ -484,21 +495,20 @@ function buildTrees() {
   ];
 
   let placed = 0, tries = 0;
-  while (placed < 180 && ++tries < 6000) {
+  while (placed < 250 && ++tries < 8000) {
     const bx = (Math.random() - 0.5) * 64;   // within ±32 (stage ±35)
     const bz = -178 + Math.random() * 356;
 
-    // Narrow corridor only: trees can get very close to the path
-    if (Math.abs(bx) < 4.0) continue;
+    if (Math.abs(bx) < 2.5) continue;
 
-    // 中央通路付近（±4〜12m）はほぼ間引いて広々とした抜け感を出す
-    if (Math.abs(bx) < 12 && Math.random() < 0.85) continue;
+    // 中央付近（±2.5〜8m）は軽く間引く程度
+    if (Math.abs(bx) < 8 && Math.random() < 0.40) continue;
 
-    // 中間帯（±12〜24m）はゆったり配置
-    if (Math.abs(bx) < 24 && Math.random() < 0.55) continue;
+    // 中間帯（±8〜20m）はほぼそのまま配置
+    if (Math.abs(bx) < 20 && Math.random() < 0.20) continue;
 
-    // 外縁（±24m以上）も間引いて奥行き感を出す
-    if (Math.abs(bx) > 24 && Math.random() < 0.60) continue;
+    // 外縁（±20m以上）は少し間引く
+    if (Math.abs(bx) > 20 && Math.random() < 0.35) continue;
 
     // Keep start and goal areas open
     if (bz < -172 || bz > 172) continue;
@@ -528,16 +538,7 @@ function buildTrees() {
     );
     trunk.position.set(bx, gy + trunkVisH / 2, bz);
     scene.add(trunk);
-
-    // Physics: CANNON.Box – sphere-box is the most reliable narrowphase in Cannon.js 0.6.2
-    // Full trunk height so marimo cannot clip through even the leafy upper section
-    if (Math.abs(bx) < 8) {
-      const hr = botR * 0.72;  // half-width of box (slightly inside visual trunk)
-      const tBody = new CANNON.Body({ mass: 0 });
-      tBody.addShape(new CANNON.Box(new CANNON.Vec3(hr, th / 2, hr)));
-      tBody.position.set(bx, gy + th / 2, bz);
-      world.addBody(tBody);
-    }
+    window._treeTrunks.push({ x: bx, z: bz, r: botR + 0.15, body: null });
 
     if (isCedar) {
       // Cedar: 2 flat umbrella-cones stacked from trunk top upward
@@ -989,6 +990,32 @@ function animate() {
       }
     }
 
+    // ── 動的ツリーコライダー（半径15m以内のみ）────────────────
+    if (window._treeTrunks) {
+      const mx = marimoBody.position.x;
+      const mz = marimoBody.position.z;
+
+      window._treeTrunks.forEach(t => {
+        const dist = Math.sqrt((t.x - mx) ** 2 + (t.z - mz) ** 2);
+        const near = dist < 15;
+
+        if (near && !t.body) {
+          // 近づいたら当たり判定を追加
+          const b = new CANNON.Body({ mass: 0 });
+          b.addShape(new CANNON.Cylinder(t.r, t.r, 8, 6));
+          b.position.set(t.x, 4, t.z);
+          world.addBody(b);
+          t.body = b;
+          _activeTreeBodies.push(t);
+        } else if (!near && t.body) {
+          // 遠ざかったら当たり判定を削除
+          world.remove(t.body);
+          t.body = null;
+          _activeTreeBodies = _activeTreeBodies.filter(a => a !== t);
+        }
+      });
+    }
+
     // ── Sync mesh ↔ body ──────────────────────────────────────
     marimoMesh.position.copy(marimoBody.position);
     marimoMesh.quaternion.copy(marimoBody.quaternion);
@@ -1001,14 +1028,7 @@ function animate() {
     const p = marimoBody.position;
     if (timeLeft  <= 0)    { endGame('timeout'); return; }
     if (p.y       < CFG.FALL_Y) { endGame('fall');    return; }
-
-        // ── ステージ端で押し戻す ──────────────────────────────
-        if (Math.abs(p.x) > 32 || Math.abs(p.z) > 188) {
-          marimoBody.velocity.x *= -0.5;
-          marimoBody.velocity.z *= -0.5;
-          marimoBody.position.x = Math.max(-32, Math.min(32, p.x));
-          marimoBody.position.z = Math.max(-188, Math.min(188, p.z));
-        }
+        if (Math.abs(p.x) > 34 || Math.abs(p.z) > 190) { endGame('fall'); return; }
 
         // ── ステージ境界で押し戻す ───────────────────────────
         if (!isInsideStage(p.x, p.z)) {
@@ -1114,6 +1134,13 @@ function animate() {
       scene.fog.density   = fDens;
       window._sun.color.copy(sCol);
       window._sun.intensity = sInt;
+
+      // 夜間は月明かりと環境光を上げる
+      const nightFactor = worldTime > 0.6 && worldTime < 0.9
+        ? Math.sin((worldTime - 0.6) / 0.3 * Math.PI)
+        : 0;
+      window._moon.intensity  = 0.6 * nightFactor;
+      window._nightAmb.intensity = 0.4 * nightFactor;
     }
 
     // ── 水たまり揺らぎ ────────────────────────────────────────
