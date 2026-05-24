@@ -211,8 +211,7 @@ function init() {
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = false;
   document.body.appendChild(renderer.domElement);
 
   // ── Camera ─────────────────────────────────────────────────
@@ -228,7 +227,7 @@ function init() {
   window._sun = new THREE.DirectionalLight(0xffdd88, 3.2);
   const sun = window._sun;
   sun.position.set(55, 42, -30);
-  sun.castShadow = true;
+  sun.castShadow = false;
   sun.shadow.mapSize.set(2048, 2048);
   Object.assign(sun.shadow.camera, {
     near: 1, far: 350, left: -85, right: 85, top: 85, bottom: -85
@@ -326,7 +325,6 @@ function buildStage() {
     new THREE.MeshLambertMaterial({ color: 0x1a3210 })
   );
   terrainMesh.rotation.x = -Math.PI / 2;
-  terrainMesh.receiveShadow = true;
   scene.add(terrainMesh);
 
   // Cannon.js v0.6.2 has no sphere-Heightfield narrowphase handler, so we use
@@ -341,7 +339,7 @@ function buildStage() {
   buildClouds();
 
   // ── Rock obstacles (16 pcs) ────────────────────────────────
-  spawnRocks(16);
+  spawnRocks(8);
 
   // ── Puddles (水たまりビジュアル) ─────────────────────────────
   const puddleWaterMat = new THREE.MeshBasicMaterial({
@@ -399,7 +397,6 @@ function buildStage() {
 
   // ── Decorative trees (visual depth markers) ─────────────────
   buildTrees();
-  buildForestBorder();
 
   // ── Wild flowers ─────────────────────────────────────────────
   buildFlowers();
@@ -457,7 +454,6 @@ function spawnRocks(count) {
     mesh.scale.set(sx, sy, sz);
     mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
     mesh.position.set(x, gy + r * sy * 0.45, z);
-    mesh.castShadow = mesh.receiveShadow = true;
     scene.add(mesh);
 
     // Sphere physics approximation (marimo rolls around rocks naturally)
@@ -488,7 +484,7 @@ function buildTrees() {
   ];
 
   let placed = 0, tries = 0;
-  while (placed < 300 && ++tries < 10000) {
+  while (placed < 180 && ++tries < 6000) {
     const bx = (Math.random() - 0.5) * 64;   // within ±32 (stage ±35)
     const bz = -178 + Math.random() * 356;
 
@@ -531,12 +527,11 @@ function buildTrees() {
       trunkMat
     );
     trunk.position.set(bx, gy + trunkVisH / 2, bz);
-    trunk.castShadow = true;
     scene.add(trunk);
 
     // Physics: CANNON.Box – sphere-box is the most reliable narrowphase in Cannon.js 0.6.2
     // Full trunk height so marimo cannot clip through even the leafy upper section
-    if (Math.abs(bx) < 12) {
+    if (Math.abs(bx) < 8) {
       const hr = botR * 0.72;  // half-width of box (slightly inside visual trunk)
       const tBody = new CANNON.Body({ mass: 0 });
       tBody.addShape(new CANNON.Box(new CANNON.Vec3(hr, th / 2, hr)));
@@ -555,7 +550,6 @@ function buildTrees() {
         const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), leafMat);
         cone.rotation.y = Math.random() * Math.PI * 2;
         cone.position.set(bx, stackY + h / 2, bz);  // base at stackY, centre at +h/2
-        cone.castShadow = (i === 0);
         scene.add(cone);
         stackY += h * 0.70;  // next cone overlaps slightly
       }
@@ -579,7 +573,6 @@ function buildTrees() {
           crownY + (i === 0 ? 0 : (Math.random() - 0.5) * coneR * 0.50),
           bz + Math.sin(a) * d
         );
-        blob.castShadow = (i === 0);
         scene.add(blob);
       }
     }
@@ -642,136 +635,6 @@ function isInsideStage(x, z) {
   if (Math.abs(x) > limitX) return false;
 
   return true;
-}
-
-function buildForestBorder() {
-  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x3d2510 });
-  const leafMats = [
-    new THREE.MeshLambertMaterial({ color: 0x0b3009 }),
-    new THREE.MeshLambertMaterial({ color: 0x133810 }),
-    new THREE.MeshLambertMaterial({ color: 0x174d15 }),
-  ];
-  const rockMat  = new THREE.MeshLambertMaterial({ color: 0x5a5248 });
-  const waterMat = new THREE.MeshBasicMaterial({ color: 0x2277aa, transparent: true, opacity: 0.80 });
-
-  // ゾーン判定（Z軸位置とサイドで端の種類を変える）
-  function borderType(z, side) {
-    const offset = Math.sin(z * 0.07 + side * 1.3) * 18;
-    const zn = z + offset;
-    if (zn < -100) return 'rock';
-    if (zn <  -10) return 'water';
-    if (zn <   80) return 'tree';
-    return 'rock';
-  }
-
-  // 木を1本配置（ビジュアル＋当たり判定）
-  function placeTree(x, z) {
-    const gy  = Math.max(0, terrainH(x, z));
-    const th  = 16 + Math.random() * 14;
-    const cr  = 2.0 + Math.random() * 2.0;
-    const tr  = 0.35 + Math.random() * 0.15;
-    const lm  = leafMats[Math.floor(Math.random() * leafMats.length)];
-
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(tr, tr + 0.15, th * 0.4, 6), trunkMat
-    );
-    trunk.position.set(x, gy + th * 0.2, z);
-    trunk.castShadow = true;
-    scene.add(trunk);
-
-    for (let i = 0; i < 2; i++) {
-      const r = cr * (1 - i * 0.38);
-      const h = r * 0.65;
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), lm);
-      cone.position.set(x, gy + th * 0.4 + i * h * 0.7 + h / 2, z);
-      scene.add(cone);
-    }
-
-    // 幹の当たり判定
-    const tb = new CANNON.Body({ mass: 0 });
-    tb.addShape(new CANNON.Cylinder(tr, tr + 0.15, th * 0.4, 6));
-    tb.position.set(x, gy + th * 0.2, z);
-    world.addBody(tb);
-  }
-
-  // 岩を1個配置（ビジュアル＋当たり判定）
-  function placeRock(x, y, z, r) {
-    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), rockMat);
-    rock.scale.set(
-      0.8 + Math.random() * 0.5,
-      0.5 + Math.random() * 0.4,
-      0.8 + Math.random() * 0.5
-    );
-    rock.rotation.set(
-      Math.random() * Math.PI,
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI
-    );
-    rock.position.set(x, y, z);
-    rock.castShadow = true;
-    scene.add(rock);
-
-    const rb = new CANNON.Body({ mass: 0 });
-    rb.addShape(new CANNON.Sphere(r * 0.75));
-    rb.position.set(x, y, z);
-    world.addBody(rb);
-  }
-
-  for (let z = -190; z <= 190; z += 2.8) {
-    [-1, 1].forEach(side => {
-      // 境界X位置を探索
-      let borderX = 0;
-      for (let xi = 38; xi >= 0; xi -= 0.5) {
-        const tx = side * xi;
-        // ステージ幅は±34の楕円＋サイン波で変化
-        const warp = 6 * Math.sin(z * 0.04 + 0.5) + 4 * Math.sin(z * 0.09 - 1.2);
-        const limit = 28 + warp;
-        if (Math.abs(tx) <= limit) { borderX = tx; break; }
-      }
-      if (borderX === 0) return;
-
-      const type = borderType(z, side);
-      const gy   = Math.max(0, terrainH(borderX, z));
-
-      if (type === 'tree') {
-        for (let layer = 0; layer < 3; layer++) {
-          const x = borderX + side * (layer * 2.8 + Math.random() * 1.2);
-          placeTree(x, z);
-        }
-
-      } else if (type === 'rock') {
-        for (let layer = 0; layer < 3; layer++) {
-          const x = borderX + side * (layer * 2.2 + Math.random() * 1.0);
-          const r = 2.0 + Math.random() * 1.8;
-          placeRock(x, gy + r * 0.3 + layer * r * 0.5, z, r);
-        }
-
-      } else if (type === 'water') {
-        if (Math.floor((z + 190) / 2.8) % 5 !== 0) return;
-
-        const wx = borderX + side * 3.5;
-        const ww = 6 + Math.random() * 3;
-        const wl = 10 + Math.random() * 6;
-
-        const puddle = new THREE.Mesh(new THREE.PlaneGeometry(ww, wl), waterMat);
-        puddle.rotation.x = -Math.PI / 2;
-        puddle.position.set(wx, 0.15, z);
-        scene.add(puddle);
-
-        // 水辺の外側を岩で塞ぐ
-        for (let i = 0; i < 3; i++) {
-          const rx = wx + side * (ww * 0.4 + i * 1.5);
-          const r  = 1.2 + Math.random() * 0.8;
-          placeRock(rx, 0.15 + r * 0.3, z + (Math.random() - 0.5) * wl, r);
-        }
-
-        // 水辺に木を添える
-        for (let t = 0; t < 2; t++) {
-          placeTree(wx + side * (t * 2.5 + Math.random() * 1.5), z + (Math.random() - 0.5) * 5);
-        }
-      }
-    });
-  }
 }
 
 
@@ -946,7 +809,6 @@ function buildCave() {
   [-1, 1].forEach(side => {
     const pillar = new THREE.Mesh(new THREE.BoxGeometry(pw, ph, pd), rockMat);
     pillar.position.set(G.x + side * (cR + pw / 2), gy + ph / 2, G.z + pd / 2);
-    pillar.castShadow = pillar.receiveShadow = true;
     scene.add(pillar);
   });
 
@@ -955,7 +817,6 @@ function buildCave() {
   const overhang = new THREE.Mesh(new THREE.BoxGeometry(ow, oh, pd + 2), rockMat);
   overhang.rotation.z = 0.06;
   overhang.position.set(G.x + 1, gy + cR * 2 + oh / 2, G.z + pd / 2 + 1);
-  overhang.castShadow = overhang.receiveShadow = true;
   scene.add(overhang);
 
   // Mossy rubble rocks around entrance
@@ -968,7 +829,6 @@ function buildCave() {
     rock.scale.set(0.8 + Math.random() * 0.6, 0.5 + Math.random() * 0.5, 0.8 + Math.random() * 0.6);
     rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
     rock.position.set(G.x + ox, gy + r * 0.4, G.z + oz);
-    rock.castShadow = rock.receiveShadow = true;
     scene.add(rock);
   });
 
@@ -988,8 +848,6 @@ function createMarimo() {
   const geo = new THREE.SphereGeometry(0.3, 32, 32);
   const mat = new THREE.MeshLambertMaterial({ color: 0x2e9020 });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
   return mesh;
 }
 // ════════════════════════════════════════════════════════════════
@@ -1143,6 +1001,14 @@ function animate() {
     const p = marimoBody.position;
     if (timeLeft  <= 0)    { endGame('timeout'); return; }
     if (p.y       < CFG.FALL_Y) { endGame('fall');    return; }
+
+        // ── ステージ端で押し戻す ──────────────────────────────
+        if (Math.abs(p.x) > 32 || Math.abs(p.z) > 188) {
+          marimoBody.velocity.x *= -0.5;
+          marimoBody.velocity.z *= -0.5;
+          marimoBody.position.x = Math.max(-32, Math.min(32, p.x));
+          marimoBody.position.z = Math.max(-188, Math.min(188, p.z));
+        }
 
         // ── ステージ境界で押し戻す ───────────────────────────
         if (!isInsideStage(p.x, p.z)) {
